@@ -1,0 +1,705 @@
+// Illyrian Gym Ferizaj - Database Schema
+// PostgreSQL + Prisma. This is the single source of truth for the domain
+// model shared by the API, admin dashboard, and mobile app (via generated
+// types). See docs/database.md for migration, indexing, and concurrency
+// notes (booking capacity, PR concurrency, partial unique indexes).
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum Role {
+  MEMBER
+  COACH
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum MembershipStatus {
+  ACTIVE
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PAID
+  UNPAID
+  PARTIAL
+}
+
+enum ClassStatus {
+  SCHEDULED
+  CANCELLED
+  COMPLETED
+}
+
+enum BookingStatus {
+  BOOKED
+  WAITLISTED
+  CANCELLED
+  ATTENDED
+  NO_SHOW
+}
+
+enum WodSectionType {
+  WARM_UP
+  STRENGTH
+  METCON
+  COOLDOWN
+}
+
+enum WodType {
+  AMRAP
+  FOR_TIME
+  EMOM
+  TABATA
+  STRENGTH
+  CUSTOM
+}
+
+enum WodStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ExerciseCategory {
+  WEIGHTLIFTING
+  GYMNASTICS
+  CARDIO
+  BODYWEIGHT
+  STRONGMAN
+  MOBILITY
+  OTHER
+}
+
+enum ExerciseDifficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum MeasurementType {
+  WEIGHT
+  REPS
+  TIME
+  DISTANCE
+  ROUNDS
+}
+
+enum PrType {
+  MAX_WEIGHT
+  MAX_REPS
+  FASTEST_TIME
+  MAX_DISTANCE
+  MAX_ROUNDS
+}
+
+enum PrUnit {
+  KG
+  LB
+  KM
+  MILES
+  SECONDS
+  MINUTES
+  REPS
+  ROUNDS
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  VERIFIED
+}
+
+enum PrSource {
+  AUTO_DETECTED
+  MANUAL
+  CORRECTED
+}
+
+enum AttendanceStatus {
+  CHECKED_IN
+  NO_SHOW
+  CANCELLED
+}
+
+enum ChallengeStatus {
+  UPCOMING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum AnnouncementPriority {
+  NORMAL
+  IMPORTANT
+  URGENT
+}
+
+enum AnnouncementStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMATION
+  BOOKING_CANCELLATION
+  CLASS_REMINDER
+  NEW_WOD
+  NEW_PR
+  ANNOUNCEMENT
+  MEMBERSHIP_EXPIRING
+  CHALLENGE
+}
+
+enum AIMessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+// =============================================================================
+// AUTH / USERS
+// =============================================================================
+
+model User {
+  id                String     @id @default(uuid())
+  email             String     @unique
+  passwordHash      String
+  firstName         String
+  lastName          String
+  phone             String?
+  role              Role       @default(MEMBER)
+  status            UserStatus @default(ACTIVE)
+  emailVerifiedAt   DateTime?
+  profileImageUrl   String?
+  deletedAt         DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  coach                Coach?
+  memberships          Membership[]
+  bookings             Booking[]
+  workoutResults       WorkoutResult[]
+  personalRecords      PersonalRecord[]
+  prHistoryEntries     PersonalRecordHistory[]      @relation("PrHistoryUser")
+  prVerifications      PersonalRecordHistory[]      @relation("PrHistoryRecordedBy")
+  attendance           Attendance[]
+  challengeEntries     ChallengeParticipant[]
+  achievements         UserAchievement[]
+  notifications        Notification[]
+  aiConversations      AIConversation[]
+  refreshTokens        RefreshToken[]
+  passwordResetTokens  PasswordResetToken[]
+  emailVerifyTokens    EmailVerificationToken[]
+  auditLogs            AuditLog[]                   @relation("AuditActor")
+  createdWods          Wod[]                        @relation("WodCreatedBy")
+  createdAnnouncements Announcement[]                @relation("AnnouncementCreatedBy")
+  createdChallenges    Challenge[]                   @relation("ChallengeCreatedBy")
+
+  @@index([role])
+  @@index([status])
+}
+
+model Coach {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bio            String?
+  certifications String[] @default([])
+  specialties    String[] @default([])
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  classes Class[]
+
+  @@index([isActive])
+}
+
+model RefreshToken {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash     String    @unique
+  userAgent     String?
+  ipAddress     String?
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  replacedByJti String?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// =============================================================================
+// MEMBERSHIPS
+// =============================================================================
+
+model MembershipPlan {
+  id            String   @id @default(uuid())
+  name          String
+  description   String?
+  durationDays  Int
+  priceCents    Int?
+  currency      String   @default("EUR")
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  memberships Membership[]
+}
+
+model Membership {
+  id            String            @id @default(uuid())
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId        String
+  plan          MembershipPlan    @relation(fields: [planId], references: [id], onDelete: Restrict)
+  startDate     DateTime
+  endDate       DateTime
+  status        MembershipStatus  @default(ACTIVE)
+  paymentStatus PaymentStatus     @default(UNPAID)
+  cancelledAt   DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([endDate])
+  @@index([status])
+}
+
+// =============================================================================
+// CLASSES / BOOKINGS
+// =============================================================================
+
+model Class {
+  id          String      @id @default(uuid())
+  title       String
+  description String?
+  coachId     String?
+  coach       Coach?      @relation(fields: [coachId], references: [id], onDelete: SetNull)
+  startTime   DateTime
+  endTime     DateTime
+  capacity    Int
+  bookedCount Int         @default(0)
+  status      ClassStatus @default(SCHEDULED)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  bookings   Booking[]
+  attendance Attendance[]
+
+  @@index([startTime])
+  @@index([coachId])
+  @@index([status])
+}
+
+model Booking {
+  id          String        @id @default(uuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  classId     String
+  class       Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  status      BookingStatus @default(BOOKED)
+  bookedAt    DateTime      @default(now())
+  cancelledAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  attendance Attendance?
+
+  // NOTE: a partial unique index enforcing "at most one active (BOOKED or
+  // WAITLISTED) booking per user per class" is added via a raw-SQL migration
+  // because Prisma cannot express a filtered unique index natively.
+  // See docs/database.md#booking-concurrency.
+  @@index([userId])
+  @@index([classId, status])
+}
+
+// =============================================================================
+// WODS / EXERCISES
+// =============================================================================
+
+model Exercise {
+  id              String              @id @default(uuid())
+  name            String              @unique
+  category        ExerciseCategory
+  description     String?
+  instructions    String?
+  equipment       String[]            @default([])
+  difficulty      ExerciseDifficulty  @default(INTERMEDIATE)
+  measurementType MeasurementType
+  prType          PrType?
+  active          Boolean             @default(true)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  wodExercises    WodExercise[]
+  workoutResults  WorkoutResult[]
+  personalRecords PersonalRecord[]
+  prHistory       PersonalRecordHistory[]
+
+  @@index([category])
+  @@index([active])
+}
+
+model Wod {
+  id          String    @id @default(uuid())
+  title       String
+  date        DateTime  @db.Date
+  type        WodType
+  description String?
+  status      WodStatus @default(DRAFT)
+  createdById String
+  createdBy   User      @relation("WodCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  sections       WodSection[]
+  workoutResults WorkoutResult[]
+
+  @@index([date])
+  @@index([status])
+}
+
+model WodSection {
+  id      String         @id @default(uuid())
+  wodId   String
+  wod     Wod            @relation(fields: [wodId], references: [id], onDelete: Cascade)
+  type    WodSectionType
+  order   Int
+  notes   String?
+
+  exercises WodExercise[]
+
+  @@index([wodId])
+}
+
+model WodExercise {
+  id             String     @id @default(uuid())
+  sectionId      String
+  section        WodSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  exerciseId     String
+  exercise       Exercise   @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  order          Int
+  sets           Int?
+  reps           Int?
+  weightKg       Decimal?   @db.Decimal(6, 2)
+  durationSeconds Int?
+  restSeconds    Int?
+  rounds         Int?
+  timeCapSeconds Int?
+  instructions   String?
+  scalingNotes   String?
+
+  @@index([sectionId])
+  @@index([exerciseId])
+}
+
+// =============================================================================
+// WORKOUT TRACKING / PERSONAL RECORDS
+// =============================================================================
+
+model WorkoutResult {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wodId           String?
+  wod             Wod?      @relation(fields: [wodId], references: [id], onDelete: SetNull)
+  exerciseId      String?
+  exercise        Exercise? @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
+  sets            Int?
+  reps            Int?
+  weightKg        Decimal?  @db.Decimal(6, 2)
+  durationSeconds Int?
+  distanceMeters  Decimal?  @db.Decimal(8, 2)
+  rounds          Int?
+  calories        Int?
+  notes           String?
+  completedAt     DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+
+  personalRecords         PersonalRecord[]
+  personalRecordHistory   PersonalRecordHistory[]
+
+  @@index([userId, completedAt])
+  @@index([wodId])
+  @@index([exerciseId])
+}
+
+// Current-best PR per user/exercise. Authoritative, derived exclusively from
+// WorkoutResult submissions (or explicit staff correction) - see
+// docs/pr-engine.md. Never written to directly by client-submitted values.
+model PersonalRecord {
+  id                  String              @id @default(uuid())
+  userId              String
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exerciseId          String
+  exercise            Exercise            @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  recordType          PrType
+  value               Decimal             @db.Decimal(10, 2)
+  unit                PrUnit
+  achievedAt          DateTime
+  sourceWorkoutId     String?
+  sourceWorkout       WorkoutResult?      @relation(fields: [sourceWorkoutId], references: [id], onDelete: SetNull)
+  verificationStatus  VerificationStatus  @default(UNVERIFIED)
+  verifiedById        String?
+  verifiedAt          DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  history PersonalRecordHistory[]
+
+  @@unique([userId, exerciseId])
+  @@index([userId])
+  @@index([exerciseId])
+}
+
+// Append-only, immutable audit trail of every PR change (auto-detected,
+// manual entry, or coach correction). Never deleted.
+model PersonalRecordHistory {
+  id               String         @id @default(uuid())
+  personalRecordId String
+  personalRecord   PersonalRecord @relation(fields: [personalRecordId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User           @relation("PrHistoryUser", fields: [userId], references: [id], onDelete: Cascade)
+  exerciseId       String
+  exercise         Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  previousValue    Decimal?       @db.Decimal(10, 2)
+  newValue         Decimal        @db.Decimal(10, 2)
+  unit             PrUnit
+  achievedAt       DateTime
+  sourceWorkoutId  String?
+  sourceWorkout    WorkoutResult? @relation(fields: [sourceWorkoutId], references: [id], onDelete: SetNull)
+  source           PrSource       @default(AUTO_DETECTED)
+  recordedById     String?
+  recordedBy       User?          @relation("PrHistoryRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+  createdAt        DateTime       @default(now())
+
+  @@index([userId, exerciseId, achievedAt])
+  @@index([personalRecordId])
+}
+
+// =============================================================================
+// ATTENDANCE
+// =============================================================================
+
+model Attendance {
+  id          String            @id @default(uuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  classId     String
+  class       Class             @relation(fields: [classId], references: [id], onDelete: Cascade)
+  bookingId   String?           @unique
+  booking     Booking?          @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  status      AttendanceStatus  @default(CHECKED_IN)
+  checkedInAt DateTime?
+  createdAt   DateTime          @default(now())
+
+  @@unique([userId, classId])
+  @@index([classId])
+}
+
+// =============================================================================
+// CHALLENGES / ACHIEVEMENTS
+// =============================================================================
+
+model Challenge {
+  id          String          @id @default(uuid())
+  title       String
+  description String?
+  rules       String?
+  pointsLabel String          @default("points")
+  startDate   DateTime
+  endDate     DateTime
+  status      ChallengeStatus @default(UPCOMING)
+  createdById String
+  createdBy   User            @relation("ChallengeCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  participants ChallengeParticipant[]
+
+  @@index([status])
+  @@index([startDate, endDate])
+}
+
+model ChallengeParticipant {
+  id          String    @id @default(uuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  points      Int       @default(0)
+  joinedAt    DateTime  @default(now())
+
+  @@unique([challengeId, userId])
+  @@index([challengeId, points])
+}
+
+model Achievement {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  title       String
+  description String?
+  iconUrl     String?
+  criteria    Json
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  users UserAchievement[]
+}
+
+model UserAchievement {
+  id            String      @id @default(uuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  earnedAt      DateTime    @default(now())
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+}
+
+// =============================================================================
+// ANNOUNCEMENTS / NOTIFICATIONS
+// =============================================================================
+
+model Announcement {
+  id          String               @id @default(uuid())
+  title       String
+  content     String
+  imageUrl    String?
+  priority    AnnouncementPriority @default(NORMAL)
+  status      AnnouncementStatus   @default(DRAFT)
+  publishAt   DateTime?
+  createdById String
+  createdBy   User                 @relation("AnnouncementCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([status, publishAt])
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt])
+  @@index([createdAt])
+}
+
+// =============================================================================
+// AI ASSISTANT COACH
+// =============================================================================
+
+model AIConversation {
+  id        String      @id @default(uuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  messages AIMessage[]
+
+  @@index([userId, updatedAt])
+}
+
+model AIMessage {
+  id             String         @id @default(uuid())
+  conversationId String
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           AIMessageRole
+  content        String
+  tokenCount     Int?
+  createdAt      DateTime       @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// =============================================================================
+// AUDIT LOG
+// =============================================================================
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  actor      User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+}
+
+// =============================================================================
+// GYM SETTINGS
+// =============================================================================
+
+// Singleton row (id is always "default") for real, staff-entered gym
+// configuration. All fields start null - nothing here is ever defaulted to
+// an invented value; the admin Settings page shows "not configured yet"
+// until authorized staff enters it (spec section 22/26).
+model GymSettings {
+  id            String   @id @default("default")
+  name          String?
+  contactEmail  String?
+  contactPhone  String?
+  address       String?
+  updatedById   String?
+  updatedAt     DateTime @updatedAt
+}

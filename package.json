@@ -1,0 +1,43 @@
+{
+  "name": "illyrian-gym-ferizaj",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Illyrian Gym Ferizaj - member mobile app, coach/admin dashboard, and backend API",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run start:dev --workspace=apps/api",
+    "dev:admin": "npm run dev --workspace=apps/admin",
+    "dev:mobile": "npm run start --workspace=apps/mobile",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:generate": "npm run generate --workspace=packages/database",
+    "db:migrate": "npm run migrate:dev --workspace=packages/database",
+    "db:migrate:deploy": "npm run migrate:deploy --workspace=packages/database",
+    "db:seed": "npm run seed --workspace=packages/database",
+    "db:seed:demo": "npm run seed:demo --workspace=packages/database",
+    "db:studio": "npm run studio --workspace=packages/database"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^10.10.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.3.3",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.0"
+  },
+  "overrides": {
+    "multer": "^2.4.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react-native": "0.86.3"
+  },
+  "dependencies": {
+    "react-native": "0.86.3"
+  }
+}

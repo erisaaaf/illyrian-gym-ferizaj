@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Illyrian Gym Ferizaj",
+    "slug": "illyrian-gym-ferizaj",
+    "scheme": "illyriangym",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-status-bar"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "dev.illyriangym.app"
+    },
+    "android": {
+      "package": "dev.illyriangym.app"
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+# Local development database only. Never used for staging/production - see
+# docs/database.md. Bring up with: docker compose up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: illyrian-gym-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: illyrian
+      POSTGRES_PASSWORD: illyrian_dev_only
+      POSTGRES_DB: illyrian_gym_dev
+    ports:
+      # Host port 5434 - this machine already has a native PostgreSQL
+      # Windows service on 5432 and another project's container on 5433
+      # (both unrelated to Illyrian Gym); mapping to a free host port
+      # avoids silently connecting to the wrong server. Container-internal
+      # port stays 5432.
+      - "5434:5432"
+    volumes:
+      - illyrian_gym_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U illyrian -d illyrian_gym_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  illyrian_gym_postgres_data:
