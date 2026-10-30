@@ -110,12 +110,28 @@ describe("Admin-managed accounts (e2e)", () => {
       expect(res.status).toBe(409);
     });
 
-    it("trainer can log in with the generated credentials", async () => {
+    it("trainer can log in with the generated credentials, and must choose their own password before doing anything else", async () => {
       const res = await login(trainerEmail, trainerPassword);
       expect(res.status).toBe(200);
       expect(res.body.user.role).toBe("COACH");
-      trainerToken = res.body.tokens.accessToken;
-      trainerRefreshToken = res.body.tokens.refreshToken;
+      expect(res.body.user.mustChangePassword).toBe(true);
+
+      // The server (not just the app) refuses every other request until the password is changed.
+      const temp = res.body.tokens.accessToken;
+      const blocked = await http().get("/coaches/me").set(as(temp));
+      expect(blocked.status).toBe(403);
+      expect(blocked.body.code).toBe("PASSWORD_CHANGE_REQUIRED");
+      expect((await http().get("/users/me").set(as(temp))).status).toBe(200); // who am I: allowed
+
+      const changed = await http().post("/auth/change-password").set(as(temp)).send({ currentPassword: trainerPassword, newPassword: "TrainerChoice123" });
+      expect(changed.status).toBe(200);
+      expect((await login(trainerEmail, trainerPassword)).status).toBe(401); // the temporary password is dead
+
+      trainerPassword = "TrainerChoice123";
+      const again = await login(trainerEmail, trainerPassword);
+      expect(again.body.user.mustChangePassword).toBe(false);
+      trainerToken = again.body.tokens.accessToken;
+      trainerRefreshToken = again.body.tokens.refreshToken;
     });
   });
 
@@ -134,8 +150,9 @@ describe("Admin-managed accounts (e2e)", () => {
 
     it("can use the staff endpoints a coach is meant to have", async () => {
       expect((await http().get("/coaches/me").set(as(trainerToken))).status).toBe(200);
-      expect((await http().get("/admin/analytics/overview").set(as(trainerToken))).status).toBe(200);
       expect((await http().get("/admin/prs").set(as(trainerToken))).status).toBe(200);
+      // ...but not the owner's business numbers
+      expect((await http().get("/admin/analytics/overview").set(as(trainerToken))).status).toBe(403);
     });
   });
 
@@ -151,10 +168,18 @@ describe("Admin-managed accounts (e2e)", () => {
       expect(user.role).toBe("MEMBER");
     });
 
-    it("member can log in with the generated credentials, but cannot book without a membership", async () => {
+    it("member can log in with the generated credentials, activates the account, but cannot book without a membership", async () => {
+      const first = await login(memberEmail, memberPassword);
+      expect(first.status).toBe(200);
+      expect(first.body.user.mustChangePassword).toBe(true);
+      const change = await http().post("/auth/change-password").set(as(first.body.tokens.accessToken)).send({ currentPassword: memberPassword, newPassword: "MemberChoice123" });
+      expect(change.status).toBe(200);
+      memberPassword = "MemberChoice123";
+
       const res = await login(memberEmail, memberPassword);
       expect(res.status).toBe(200);
       expect(res.body.user.role).toBe("MEMBER");
+      expect(res.body.user.mustChangePassword).toBe(false);
       memberToken = res.body.tokens.accessToken;
 
       const cls = await http()

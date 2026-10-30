@@ -13,8 +13,8 @@ export class CoachesController {
 
   // Open to any authenticated role - members browse coach profiles too.
   @Get()
-  list(@Query() query: PaginationQueryDto) {
-    return this.coachesService.list(query);
+  list(@Query() query: PaginationQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.coachesService.list(query, user);
   }
 
   @Get("me")
@@ -23,8 +23,8 @@ export class CoachesController {
   }
 
   @Get(":id")
-  findOne(@Param("id") id: string) {
-    return this.coachesService.findOne(id);
+  findOne(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.coachesService.findOne(id, user);
   }
 
   @Roles(Role.ADMIN)

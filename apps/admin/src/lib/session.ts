@@ -23,6 +23,6 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   return res.json();
 }
 
-// The dashboard is the management console - Admin only. Trainers and members
-// sign in through the mobile app. (The API enforces roles itself regardless.)
-export const DASHBOARD_ROLES = ["ADMIN"] as const;
+// The web dashboard is the staff console: Admin/Owner, Receptionist and Trainer (each sees only their part of it).
+// Members use the mobile app. The API enforces roles itself regardless of what the UI shows.
+export const DASHBOARD_ROLES = ["ADMIN", "RECEPTIONIST", "COACH"] as const;

@@ -1,7 +1,8 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditService } from "../../common/audit/audit.service";
+import { DEFAULT_RULES, GymRulesService } from "../../common/gym-rules.service";
 import { UpdateGymSettingsDto } from "./dto/update-gym-settings.dto";
 
 const SINGLETON_ID = "default";
@@ -12,6 +13,7 @@ export class SettingsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly config: ConfigService,
+    private readonly rulesService: GymRulesService,
   ) {}
 
   /** Which optional integrations are actually configured - read from real env, never faked. */
@@ -39,17 +41,24 @@ export class SettingsService {
         address: null,
         updatedAt: null,
         configured: false,
+        ...DEFAULT_RULES,
       }
     );
   }
 
   async update(dto: UpdateGymSettingsDto, actorId: string) {
+    const current = await this.rulesService.get();
+    const shortDays = dto.atRiskShortDays ?? current.atRiskShortDays;
+    const longDays = dto.atRiskLongDays ?? current.atRiskLongDays;
+    if (longDays < shortDays) throw new BadRequestException("The second at-risk threshold must not be shorter than the first");
+
     const settings = await this.prisma.client.gymSettings.upsert({
       where: { id: SINGLETON_ID },
       create: { id: SINGLETON_ID, ...dto, updatedById: actorId },
       update: { ...dto, updatedById: actorId },
     });
-    await this.audit.record({ actorId, action: "gym_settings.update", entityType: "GymSettings", entityId: SINGLETON_ID });
+    this.rulesService.invalidate(); // new rules apply to the very next request
+    await this.audit.record({ actorId, action: "gym_settings.update", entityType: "GymSettings", entityId: SINGLETON_ID, metadata: { fields: Object.keys(dto) } });
     return settings;
   }
 }

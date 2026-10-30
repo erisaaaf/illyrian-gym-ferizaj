@@ -5,11 +5,15 @@ import { ConfigService } from "@nestjs/config";
 import { ValidationPipe } from "@nestjs/common";
 import { AppModule } from "./app.module";
 import { StructuredLogger } from "./common/logger/structured-logger.service";
+import { buildCorsOptions } from "./common/cors";
+import { configureBodyParsers } from "./common/body-parsers";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
+    bodyParser: false,
   });
+  configureBodyParsers(app);
 
   const logger = new StructuredLogger("Bootstrap");
   app.useLogger(logger);
@@ -22,10 +26,7 @@ async function bootstrap() {
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean);
-  app.enableCors({
-    origin: corsOrigins.length > 0 ? corsOrigins : false,
-    credentials: true,
-  });
+  app.enableCors(buildCorsOptions(corsOrigins, config.get<string>("NODE_ENV")));
 
   app.useGlobalPipes(
     new ValidationPipe({

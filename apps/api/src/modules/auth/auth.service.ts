@@ -195,7 +195,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.newPassword, saltRounds);
 
     await this.prisma.client.$transaction([
-      this.prisma.client.user.update({ where: { id: userId }, data: { passwordHash } }),
+      this.prisma.client.user.update({ where: { id: userId }, data: { passwordHash, mustChangePassword: false } }),
       // Force re-authentication on every other device after a password change.
       this.prisma.client.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } }),
     ]);
@@ -279,6 +279,7 @@ export class AuthService {
     status: UserStatus;
     emailVerifiedAt: Date | null;
     profileImageUrl: string | null;
+    mustChangePassword: boolean;
   }) {
     return {
       id: user.id,
@@ -289,6 +290,7 @@ export class AuthService {
       status: user.status,
       emailVerifiedAt: user.emailVerifiedAt?.toISOString() ?? null,
       profileImageUrl: user.profileImageUrl,
+      mustChangePassword: user.mustChangePassword,
     };
   }
 }

@@ -31,11 +31,11 @@ export class JwtAccessStrategy extends PassportStrategy(Strategy, "jwt-access") 
   async validate(payload: AccessTokenPayload): Promise<AuthenticatedUser> {
     const user = await this.prisma.client.user.findUnique({
       where: { id: payload.sub },
-      select: { email: true, role: true, status: true, deletedAt: true },
+      select: { email: true, role: true, status: true, deletedAt: true, mustChangePassword: true },
     });
     if (!user || user.deletedAt || user.status !== "ACTIVE") {
       throw new UnauthorizedException("This account is not active");
     }
-    return { sub: payload.sub, email: user.email, role: user.role };
+    return { sub: payload.sub, email: user.email, role: user.role, mustChangePassword: user.mustChangePassword };
   }
 }

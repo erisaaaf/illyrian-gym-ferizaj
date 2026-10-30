@@ -6,6 +6,8 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(3000),
   CORS_ORIGINS: z.string().default(""),
+  // IANA timezone the gym operates in; decides what "today" means for WODs and streaks.
+  GYM_TIMEZONE: z.string().default("Europe/Belgrade"),
 
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
 

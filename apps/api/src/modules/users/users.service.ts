@@ -12,6 +12,8 @@ const PUBLIC_USER_SELECT = {
   status: true,
   emailVerifiedAt: true,
   profileImageUrl: true,
+  mustChangePassword: true,
+  memberNumber: true,
   createdAt: true,
 } as const;
 

@@ -33,7 +33,7 @@ export class CoachesService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(query: PaginationQueryDto) {
+  async list(query: PaginationQueryDto, viewer?: { role: string }) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const where = query.search
@@ -58,7 +58,17 @@ export class CoachesService {
       this.prisma.client.coach.count({ where }),
     ]);
 
-    return paginate(data, total, page, pageSize);
+    return paginate(data.map((c) => this.forViewer(c, viewer)), total, page, pageSize);
+  }
+
+  /**
+   * Members browse trainer profiles, so what they receive is limited to the public profile: name, bio, specialties.
+   * Contact details and account status are for staff only.
+   */
+  private forViewer<T extends { user: { email?: string; phone?: string | null; status?: string; [k: string]: unknown } }>(coach: T, viewer?: { role: string }): T {
+    if (viewer && viewer.role !== "MEMBER") return coach;
+    const { email: _email, phone: _phone, status: _status, ...publicUser } = coach.user;
+    return { ...coach, user: publicUser } as T;
   }
 
   async findByUserId(userId: string) {
@@ -67,7 +77,7 @@ export class CoachesService {
     return coach;
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, viewer?: { role: string }) {
     const coach = await this.prisma.client.coach.findUnique({
       where: { id },
       include: {
@@ -80,8 +90,8 @@ export class CoachesService {
         },
       },
     });
-    if (!coach) throw new NotFoundException("Coach not found");
-    return coach;
+    if (!coach || (viewer?.role === "MEMBER" && !coach.isActive)) throw new NotFoundException("Coach not found");
+    return this.forViewer(coach, viewer);
   }
 
   async create(dto: CreateCoachDto, actorId: string) {
@@ -101,6 +111,7 @@ export class CoachesService {
           lastName: dto.lastName,
           phone: dto.phone,
           role: Role.COACH,
+          mustChangePassword: true, // the trainer chooses their own password on first sign-in
         },
       });
       return tx.coach.create({
@@ -163,7 +174,7 @@ export class CoachesService {
     const passwordHash = await bcrypt.hash(tempPassword, this.config.get<number>("BCRYPT_SALT_ROUNDS")!);
 
     await this.prisma.client.$transaction([
-      this.prisma.client.user.update({ where: { id: existing.userId }, data: { passwordHash } }),
+      this.prisma.client.user.update({ where: { id: existing.userId }, data: { passwordHash, mustChangePassword: true } }),
       this.prisma.client.refreshToken.updateMany({
         where: { userId: existing.userId, revokedAt: null },
         data: { revokedAt: new Date() },

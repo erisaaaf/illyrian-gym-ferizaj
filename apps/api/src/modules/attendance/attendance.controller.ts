@@ -18,13 +18,13 @@ export class AttendanceController {
 
   @Roles(Role.ADMIN, Role.COACH)
   @Get("admin/attendance")
-  list(@Query() query: ListAttendanceQueryDto) {
-    return this.attendanceService.list(query);
+  list(@Query() query: ListAttendanceQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.attendanceService.list(query, user);
   }
 
   @Roles(Role.ADMIN, Role.COACH)
   @Post("admin/attendance")
   mark(@Body() dto: MarkAttendanceDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.attendanceService.mark(dto, user.sub);
+    return this.attendanceService.mark(dto, user);
   }
 }

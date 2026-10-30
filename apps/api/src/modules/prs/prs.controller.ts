@@ -23,33 +23,33 @@ export class PrsController {
 
   @Roles(Role.ADMIN, Role.COACH)
   @Get("admin/prs")
-  list(@Query() query: ListPrsQueryDto) {
-    return this.prsService.list(query);
+  list(@Query() query: ListPrsQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.prsService.list(query, user);
   }
 
   @Roles(Role.ADMIN, Role.COACH)
   @Get("admin/prs/:id/history")
-  history(@Param("id") id: string) {
-    return this.prsService.history(id);
+  history(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.prsService.history(id, user);
   }
 
   @Roles(Role.ADMIN, Role.COACH)
   @HttpCode(HttpStatus.OK)
   @Patch("admin/prs/:id/verify")
   verify(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.prsService.verify(id, user.sub);
+    return this.prsService.verify(id, user);
   }
 
   @Roles(Role.ADMIN, Role.COACH)
   @HttpCode(HttpStatus.OK)
   @Patch("admin/prs/:id/correct")
   correct(@Param("id") id: string, @Body() dto: CorrectPrDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.prsService.correct(id, dto, user.sub);
+    return this.prsService.correct(id, dto, user);
   }
 
   @Roles(Role.ADMIN, Role.COACH)
   @Post("admin/prs/manual")
   manualAdd(@Body() dto: ManualPrDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.prsService.manualAdd(dto, user.sub);
+    return this.prsService.manualAdd(dto, user);
   }
 }

@@ -122,6 +122,47 @@ These are deliberately left as configuration/TODOs rather than invented:
   is explicitly fake/development-only and must never be used in
   production - see spec section 67/79.
 
+## AI Coach
+
+`apps/api/src/modules/ai-coach`. A member talks to the assistant through
+`POST /ai-coach/messages`; the latest chat is restored with
+`GET /ai-coach/conversation`. Both are scoped to the caller - there is no route
+that addresses another member's conversation. History is stored in
+`AIConversation` / `AIMessage`.
+
+- **Grounded in real data only.** For every message the API builds a context
+  from the database: first name, membership, today's *published* WOD, PRs,
+  recent workouts, progress summary and upcoming bookings. The model is told to
+  use only that, never to invent workouts/PRs/prices/schedules, and not to give
+  medical advice.
+- **Provider abstraction.** `OpenAiCoachProvider` is used when `OPENAI_API_KEY`
+  is set. Otherwise `LocalCoachProvider` answers a fixed set of intents (WOD,
+  PRs, progress, classes, membership, recent workouts) straight from the same
+  context. It is not a language model and the app says so ("Basic mode"). If
+  OpenAI errors, the request falls back to the local provider and the response
+  reports which engine answered (`provider: "openai" | "local"`).
+- **Safety.** Questions about pain, injury, illness or medication get a
+  fixed "I'm not a medical professional" answer instead of advice.
+- **Cost / abuse control.** `AI_RATE_LIMIT_PER_USER_PER_DAY` messages per member
+  per rolling 24h (HTTP 429 after that), `AI_MAX_OUTPUT_TOKENS`, input capped at
+  1000 characters. The limit is per member, not per IP, because members share the
+  gym's wifi address.
+
+## Gym time
+
+"Today" is decided by `GYM_TIMEZONE` (default `Europe/Belgrade`), not the
+server's clock. A WOD date is a date-only value stored as UTC midnight of the gym's
+calendar day; `GET /wods/today`, training streaks and the weekly training-days
+chart all use `apps/api/src/common/gym-time.ts`.
+
+## Ownership rules
+
+A trainer only manages classes assigned to them: participants, check-in and the
+attendance list are limited to their own classes (`common/class-access.ts`);
+admins can manage any class. Attendance records who marked it (`markedBy`) and
+corrections keep the booking status in step in both directions, so a mistake can
+always be undone.
+
 ## Phased build plan
 
 Following the spec's phase ordering (section 70):
@@ -133,8 +174,8 @@ Following the spec's phase ordering (section 70):
 3. **Training**: workout tracking, history, progress.
 4. **PR engine**: automatic detection, history, verification, correction,
    concurrency-safe updates, audit logging.
-5. **AI Assistant Coach**: context retrieval, chat, safety behavior, cost
-   controls.
+5. **AI Assistant Coach** (done): context retrieval, chat, safety behavior, cost
+   controls - see [AI Coach](#ai-coach).
 6. **Admin dashboard** screens for all of the above.
 7. **Engagement**: notifications, challenges, achievements, leaderboards.
 8. **Production hardening**: security/perf/accessibility/backup review.

@@ -2,181 +2,135 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError } from "../../../lib/api";
+import { useStaffUser } from "../../../lib/staff-context";
 import { Modal } from "../../../components/ui/modal";
-import { TextField, SelectField } from "../../../components/ui/field";
+import { TextField, SelectField, TextAreaField } from "../../../components/ui/field";
 import { Button } from "../../../components/ui/button";
 import { CredentialsPanel } from "../../../components/credentials-panel";
 
-interface Plan {
-  id: string;
-  name: string;
-  durationDays: number;
-  isActive: boolean;
-}
-
 interface CreateMemberResult {
-  member: { id: string; firstName: string; lastName: string; email: string };
+  member: { id: string; firstName: string; lastName: string; email: string; memberNumber: string | null };
   temporaryPassword: string;
 }
+interface Trainer {
+  id: string;
+  isActive: boolean;
+  user: { firstName: string; lastName: string };
+}
 
-const today = () => new Date().toISOString().slice(0, 10);
-const addDays = (isoDate: string, days: number) => {
-  const d = new Date(`${isoDate}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-};
-
-export function AddMemberModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
+/**
+ * Creates the member's account (the member number is assigned automatically). Memberships are sold afterwards
+ * from the member's profile, so the invoice and payment are created in one place.
+ */
+export function AddMemberModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: string) => void }) {
+  const { role } = useStaffUser();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [assign, setAssign] = useState(false);
-  const [plans, setPlans] = useState<Plan[]>([]);
-  const [planId, setPlanId] = useState("");
-  const [startDate, setStartDate] = useState(today());
-  const [endDate, setEndDate] = useState("");
-  const [paymentStatus, setPaymentStatus] = useState("UNPAID");
+  const [notes, setNotes] = useState("");
+  const [coachId, setCoachId] = useState("");
+  const [trainers, setTrainers] = useState<Trainer[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<CreateMemberResult | null>(null);
-  const [membershipNote, setMembershipNote] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || role !== "ADMIN") return;
     api
-      .get<Plan[]>("membership-plans")
-      .then((all) => {
-        const active = all.filter((p) => p.isActive);
-        setPlans(active);
-        setPlanId((current) => current || active[0]?.id || "");
-      })
-      .catch(() => setPlans([]));
-  }, [open]);
-
-  // Suggest an end date from the plan's duration; the admin can still change it.
-  useEffect(() => {
-    const plan = plans.find((p) => p.id === planId);
-    if (plan && startDate) setEndDate(addDays(startDate, plan.durationDays));
-  }, [planId, startDate, plans]);
+      .get<{ data: Trainer[] }>("coaches?pageSize=100")
+      .then((r) => setTrainers(r.data.filter((t) => t.isActive)))
+      .catch(() => setTrainers([]));
+  }, [open, role]);
 
   function reset() {
     setFirstName("");
     setLastName("");
     setEmail("");
     setPhone("");
-    setAssign(false);
-    setStartDate(today());
-    setPaymentStatus("UNPAID");
+    setNotes("");
+    setCoachId("");
     setError(null);
     setCreated(null);
-    setMembershipNote(null);
   }
 
-  function handleClose() {
+  function close() {
+    const id = created?.member.id;
     reset();
     onClose();
+    if (id) onCreated(id);
   }
 
-  async function onSubmit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
-    setLoading(true);
+    setBusy(true);
     setError(null);
     try {
-      const result = await api.post<CreateMemberResult>("admin/members", {
-        firstName,
-        lastName,
-        email,
-        phone: phone || undefined,
-      });
-      setCreated(result);
-
-      if (assign) {
-        try {
-          await api.post("admin/memberships", { userId: result.member.id, planId, startDate, endDate, paymentStatus });
-          setMembershipNote("Membership assigned.");
-        } catch (err) {
-          // The account exists and its credentials are on screen - don't lose them over a membership error.
-          setMembershipNote(
-            `The account was created, but the membership could not be assigned (${err instanceof ApiError ? err.message : "unknown error"}). Assign it from Memberships.`,
-          );
-        }
-      }
-      // Refresh the list only now, so it reflects the membership too.
-      onCreated();
+      setCreated(
+        await api.post<CreateMemberResult>("admin/members", {
+          firstName,
+          lastName,
+          email,
+          phone: phone || undefined,
+          adminNotes: notes || undefined,
+          assignedCoachId: coachId || undefined,
+        }),
+      );
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not create member.");
+      setError(err instanceof ApiError ? (err.errors?.validation?.[0] ?? err.message) : "Could not create the member.");
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
   if (created) {
     return (
-      <Modal open={open} onClose={handleClose} title="Member created" persistent>
-        <CredentialsPanel
-          name={`${created.member.firstName} ${created.member.lastName}`}
-          email={created.member.email}
-          password={created.temporaryPassword}
-          audience="member"
-        />
-        {membershipNote && <p className="mb-4 text-sm text-text-secondary">{membershipNote}</p>}
-        <div className="flex justify-end">
-          <Button onClick={handleClose}>Done</Button>
-        </div>
+      <Modal open={open} onClose={close} title={`Member ${created.member.memberNumber ?? ""} created`} persistent footer={<Button variant="primary" onClick={close}>Open profile</Button>}>
+        <CredentialsPanel name={`${created.member.firstName} ${created.member.lastName}`} email={created.member.email} password={created.temporaryPassword} audience="member" />
+        <p className="text-xs text-text-muted">The member is asked to choose their own password the first time they sign in. Next step: sell them a membership from their profile.</p>
       </Modal>
     );
   }
 
   return (
-    <Modal open={open} onClose={handleClose} title="Add Member">
-      <form onSubmit={onSubmit}>
-        {error && <p className="mb-3 rounded-md border border-danger/30 bg-danger/10 p-2 text-sm text-danger">{error}</p>}
-        <div className="grid grid-cols-2 gap-3">
-          <TextField label="First name" required value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-          <TextField label="Last name" required value={lastName} onChange={(e) => setLastName(e.target.value)} />
-        </div>
-        <TextField label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-        <TextField label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
-
-        <div className="mb-4 rounded-md border border-border p-3">
-          <label className="flex items-center gap-2 text-sm text-text-primary">
-            <input type="checkbox" checked={assign} disabled={plans.length === 0} onChange={(e) => setAssign(e.target.checked)} />
-            Assign a membership now
-          </label>
-          {plans.length === 0 && (
-            <p className="mt-1 text-xs text-text-muted">No active membership plans yet - create one under Memberships → Plans first.</p>
-          )}
-          {assign && (
-            <div className="mt-3">
-              <SelectField label="Plan" required value={planId} onChange={(e) => setPlanId(e.target.value)}>
-                {plans.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.durationDays} days)
-                  </option>
-                ))}
-              </SelectField>
-              <div className="grid grid-cols-2 gap-3">
-                <TextField label="Start date" type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                <TextField label="End date" type="date" required value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-              </div>
-              <SelectField label="Payment status" value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)}>
-                <option value="UNPAID">Unpaid</option>
-                <option value="PARTIAL">Partial</option>
-                <option value="PAID">Paid</option>
-              </SelectField>
-            </div>
-          )}
-        </div>
-
-        <div className="mt-2 flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={handleClose}>
+    <Modal
+      open={open}
+      onClose={close}
+      title="Add a member"
+      footer={
+        <>
+          <Button variant="ghost" onClick={close}>
             Cancel
           </Button>
-          <Button type="submit" loading={loading}>
+          <Button variant="primary" type="submit" form="add-member" loading={busy}>
             Create member
           </Button>
+        </>
+      }
+    >
+      <form id="add-member" onSubmit={submit}>
+        {error && (
+          <p role="alert" className="mb-4 rounded-md border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
+            {error}
+          </p>
+        )}
+        <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
+          <TextField label="First name" required value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="off" />
+          <TextField label="Last name" required value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="off" />
         </div>
+        <TextField label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" hint="Used to sign in to the member app." />
+        <TextField label="Phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        {role === "ADMIN" && (
+          <SelectField label="Assigned trainer" value={coachId} onChange={(e) => setCoachId(e.target.value)} hint="Optional. The trainer sees this member as a client.">
+            <option value="">No trainer</option>
+            {trainers.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.user.firstName} {t.user.lastName}
+              </option>
+            ))}
+          </SelectField>
+        )}
+        <TextAreaField label="Internal notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} hint="Visible to staff only, never to the member." />
       </form>
     </Modal>
   );

@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { IsEmail, IsOptional, IsString, IsUUID, MaxLength, MinLength } from "class-validator";
 
 export class CreateMemberDto {
   @IsEmail()
@@ -18,4 +18,15 @@ export class CreateMemberDto {
   @IsString()
   @MaxLength(30)
   phone?: string;
+
+  /** Assign a trainer at registration (Admin only; ignored for reception). */
+  @IsOptional()
+  @IsUUID()
+  assignedCoachId?: string;
+
+  /** Staff-only notes. Never shown to the member. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  adminNotes?: string;
 }

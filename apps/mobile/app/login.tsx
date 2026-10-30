@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { color, radius, spacing, typography } from "@illyrian/config";
 import { useAuth } from "../lib/auth-context";
-import { ApiError } from "../lib/api-client";
+import { ApiError, NetworkError } from "../lib/api-client";
 
 export default function LoginScreen() {
   const { user, loading: sessionLoading, login } = useAuth();
@@ -22,7 +22,7 @@ export default function LoginScreen() {
   const [submitting, setSubmitting] = useState(false);
 
   if (!sessionLoading && user) {
-    return <Redirect href="/(tabs)" />;
+    return <Redirect href={user.mustChangePassword ? "/change-password" : "/(tabs)"} />;
   }
 
   async function onSubmit() {
@@ -31,7 +31,12 @@ export default function LoginScreen() {
     try {
       await login(email, password);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not reach the server. Please try again.");
+      if (e instanceof ApiError) setError(e.message);
+      else if (e instanceof NetworkError) {
+        // The address is only shown in development builds; members never need to see it.
+        setError(__DEV__ ? `${e.message}
+(dev: no response from ${e.url})` : e.message);
+      } else setError("Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
     }

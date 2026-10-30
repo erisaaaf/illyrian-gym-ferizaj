@@ -16,7 +16,7 @@ export class SettingsController {
   }
 
   // Any authenticated staff member can view (e.g. to show gym contact info); only ADMIN can edit.
-  @Roles(Role.ADMIN, Role.COACH)
+  @Roles(Role.ADMIN, Role.COACH, Role.RECEPTIONIST)
   @Get("gym")
   get() {
     return this.settingsService.get();

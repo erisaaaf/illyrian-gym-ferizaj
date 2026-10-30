@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditService } from "../../common/audit/audit.service";
 import { PaginationQueryDto } from "../../common/dto/pagination.dto";
@@ -87,6 +87,9 @@ export class ChallengesService {
   async join(id: string, userId: string) {
     const challenge = await this.prisma.client.challenge.findUnique({ where: { id } });
     if (!challenge) throw new NotFoundException("Challenge not found");
+    if (challenge.status === "COMPLETED" || challenge.status === "CANCELLED") {
+      throw new BadRequestException("This challenge is no longer open to join");
+    }
 
     const existing = await this.prisma.client.challengeParticipant.findUnique({
       where: { challengeId_userId: { challengeId: id, userId } },
@@ -94,5 +97,22 @@ export class ChallengesService {
     if (existing) throw new ConflictException("You have already joined this challenge");
 
     return this.prisma.client.challengeParticipant.create({ data: { challengeId: id, userId } });
+  }
+
+  /**
+   * Challenges reward participation and consistency: every workout logged or
+   * class attended while a joined challenge is ACTIVE and in its date window is
+   * worth one point. Called by the workout and attendance flows; a no-op for
+   * members who haven't joined anything.
+   */
+  async awardParticipation(userId: string, at: Date = new Date()): Promise<number> {
+    const result = await this.prisma.client.challengeParticipant.updateMany({
+      where: {
+        userId,
+        challenge: { status: "ACTIVE", startDate: { lte: at }, endDate: { gte: at } },
+      },
+      data: { points: { increment: 1 } },
+    });
+    return result.count;
   }
 }

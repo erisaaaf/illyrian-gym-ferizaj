@@ -1,8 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { ClassStatus, Prisma } from "@illyrian/database";
+import { ClassStatus, NotificationType, Prisma } from "@illyrian/database";
+import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditService } from "../../common/audit/audit.service";
 import { paginate, skipTake } from "../../common/pagination.util";
+import { assertCanManageClass } from "../../common/class-access";
+import { AuthenticatedUser } from "../../common/decorators/current-user.decorator";
 import { CreateClassDto } from "./dto/create-class.dto";
 import { UpdateClassDto } from "./dto/update-class.dto";
 import { ListClassesQueryDto } from "./dto/list-classes.query.dto";
@@ -16,7 +19,13 @@ export class ClassesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly config: ConfigService,
   ) {}
+
+  /** Date and time as the members know them: in the gym's timezone, not UTC. */
+  private when(date: Date): string {
+    return new Intl.DateTimeFormat("en-GB", { timeZone: this.config.get<string>("GYM_TIMEZONE"), weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(date);
+  }
 
   async list(query: ListClassesQueryDto) {
     const page = query.page ?? 1;
@@ -55,9 +64,8 @@ export class ClassesService {
     return cls;
   }
 
-  async participants(id: string) {
-    const cls = await this.prisma.client.class.findUnique({ where: { id } });
-    if (!cls) throw new NotFoundException("Class not found");
+  async participants(id: string, user: AuthenticatedUser) {
+    await assertCanManageClass(this.prisma, id, user);
 
     return this.prisma.client.booking.findMany({
       where: { classId: id, status: { in: ["BOOKED", "WAITLISTED", "ATTENDED", "NO_SHOW"] } },
@@ -110,21 +118,29 @@ export class ClassesService {
       );
     }
 
-    const cls = await this.prisma.client.class.update({
-      where: { id },
-      data: {
-        title: dto.title,
-        description: dto.description,
-        coachId: dto.coachId,
-        startTime,
-        endTime,
-        capacity: dto.capacity,
-        status: dto.status,
-      },
-      include: CLASS_INCLUDE,
+    const timeChanged = startTime.getTime() !== existing.startTime.getTime() || endTime.getTime() !== existing.endTime.getTime();
+    const cls = await this.prisma.client.$transaction(async (tx) => {
+      const updated = await tx.class.update({
+        where: { id },
+        data: {
+          title: dto.title,
+          description: dto.description,
+          coachId: dto.coachId,
+          startTime,
+          endTime,
+          capacity: dto.capacity,
+          status: dto.status,
+        },
+        include: CLASS_INCLUDE,
+      });
+      // Members who booked (or are waitlisted) must hear about a new time - they planned their day around it.
+      if (timeChanged) {
+        await this.notifyBooked(tx, id, "Class time changed", `${updated.title} now runs ${this.when(startTime)} (it was ${this.when(existing.startTime)}).`);
+      }
+      return updated;
     });
 
-    await this.audit.record({ actorId, action: "class.update", entityType: "Class", entityId: id });
+    await this.audit.record({ actorId, action: "class.update", entityType: "Class", entityId: id, metadata: timeChanged ? { rescheduled: true } : undefined });
     return cls;
   }
 
@@ -138,6 +154,7 @@ export class ClassesService {
         data: { status: ClassStatus.CANCELLED },
         include: CLASS_INCLUDE,
       });
+      await this.notifyBooked(tx, id, "Class cancelled", `${updated.title} on ${this.when(existing.startTime)} has been cancelled.`);
       await tx.booking.updateMany({
         where: { classId: id, status: { in: ["BOOKED", "WAITLISTED"] } },
         data: { status: "CANCELLED", cancelledAt: new Date() },
@@ -147,6 +164,15 @@ export class ClassesService {
 
     await this.audit.record({ actorId, action: "class.cancel", entityType: "Class", entityId: id });
     return cls;
+  }
+
+  /** One in-app notice per member who is booked or waitlisted for the class. */
+  private async notifyBooked(tx: Prisma.TransactionClient, classId: string, title: string, body: string) {
+    const bookings = await tx.booking.findMany({ where: { classId, status: { in: ["BOOKED", "WAITLISTED"] } }, select: { userId: true } });
+    if (bookings.length === 0) return;
+    await tx.notification.createMany({
+      data: bookings.map((b) => ({ userId: b.userId, type: NotificationType.SCHEDULE_CHANGE, title, body, data: { classId } })),
+    });
   }
 
   private async assertCoachExists(coachId: string) {

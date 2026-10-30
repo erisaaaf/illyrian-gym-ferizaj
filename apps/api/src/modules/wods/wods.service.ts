@@ -1,8 +1,10 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Prisma, WodStatus } from "@illyrian/database";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditService } from "../../common/audit/audit.service";
 import { paginate, skipTake } from "../../common/pagination.util";
+import { gymTodayDate } from "../../common/gym-time";
 import { CreateWodDto } from "./dto/create-wod.dto";
 import { UpdateWodDto } from "./dto/update-wod.dto";
 import { ListWodsQueryDto } from "./dto/list-wods.query.dto";
@@ -25,6 +27,7 @@ export class WodsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly config: ConfigService,
   ) {}
 
   async list(query: ListWodsQueryDto, isStaff: boolean) {
@@ -49,14 +52,14 @@ export class WodsService {
   }
 
   async today(isStaff: boolean) {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start.getTime() + 86_400_000);
-
     return this.prisma.client.wod.findFirst({
-      where: { date: { gte: start, lt: end }, status: isStaff ? undefined : WodStatus.PUBLISHED },
+      where: {
+        date: gymTodayDate(this.config.get<string>("GYM_TIMEZONE")),
+        // Members only ever see a published WOD; staff also see a draft for today.
+        ...(isStaff ? { status: { not: WodStatus.ARCHIVED } } : { status: WodStatus.PUBLISHED }),
+      },
       include: WOD_INCLUDE,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ status: "desc" }, { createdAt: "desc" }],
     });
   }
 

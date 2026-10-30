@@ -1,3 +1,4 @@
+import { AllowWhilePasswordChangeRequired } from "../../common/decorators/allow-password-change.decorator";
 import { Body, Controller, HttpCode, HttpStatus, Post, Req } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { Request } from "express";
@@ -74,6 +75,7 @@ export class AuthController {
     return { message: "Email verified." };
   }
 
+  @AllowWhilePasswordChangeRequired()
   @HttpCode(HttpStatus.OK)
   @Post("change-password")
   async changePassword(@Body() dto: ChangePasswordDto, @CurrentUser() user: AuthenticatedUser) {

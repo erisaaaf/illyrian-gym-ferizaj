@@ -6,5 +6,6 @@ import { AuditService } from "../../common/audit/audit.service";
 @Module({
   controllers: [ChallengesController],
   providers: [ChallengesService, AuditService],
+  exports: [ChallengesService],
 })
 export class ChallengesModule {}

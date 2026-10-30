@@ -14,12 +14,13 @@ export class ExercisesService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(query: ListExercisesQueryDto) {
+  /** Members only ever see the active catalog; staff can browse and filter by active state. */
+  async list(query: ListExercisesQueryDto, isStaff: boolean) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 50;
     const where: Prisma.ExerciseWhereInput = {
       ...(query.category ? { category: query.category } : {}),
-      ...(query.active !== undefined ? { active: query.active === "true" } : {}),
+      ...(!isStaff ? { active: true } : query.active !== undefined ? { active: query.active === "true" } : {}),
       ...(query.search ? { name: { contains: query.search, mode: "insensitive" } } : {}),
     };
 

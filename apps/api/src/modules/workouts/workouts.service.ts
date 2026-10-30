@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { NotificationType } from "@illyrian/database";
 import { PrismaService } from "../../prisma/prisma.service";
 import { PrsService } from "../prs/prs.service";
+import { ChallengesService } from "../challenges/challenges.service";
 import { paginate, skipTake } from "../../common/pagination.util";
 import { PaginationQueryDto } from "../../common/dto/pagination.dto";
 import { RecordWorkoutDto } from "./dto/record-workout.dto";
@@ -11,6 +12,7 @@ export class WorkoutsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly prsService: PrsService,
+    private readonly challenges: ChallengesService,
   ) {}
 
   async record(userId: string, dto: RecordWorkoutDto) {
@@ -26,6 +28,7 @@ export class WorkoutsService {
     if (dto.exerciseId) {
       exercise = await this.prisma.client.exercise.findUnique({ where: { id: dto.exerciseId } });
       if (!exercise) throw new NotFoundException("Exercise not found");
+      if (!exercise.active) throw new BadRequestException("This exercise is no longer available");
     }
 
     const completedAt = dto.completedAt ? new Date(dto.completedAt) : new Date();
@@ -75,6 +78,7 @@ export class WorkoutsService {
       return { workoutResult, prOutcome };
     });
 
+    await this.challenges.awardParticipation(userId, completedAt);
     return result;
   }
 

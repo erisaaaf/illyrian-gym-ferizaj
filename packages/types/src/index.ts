@@ -7,7 +7,7 @@
 // Plain string-literal unions (not TS `enum`) so they stay structurally
 // assignable to the equivalent types Prisma generates (packages/database),
 // which are also literal unions, not nominal enums.
-export type Role = "MEMBER" | "COACH" | "ADMIN";
+export type Role = "MEMBER" | "COACH" | "RECEPTIONIST" | "ADMIN";
 
 export type UserStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
 
@@ -20,6 +20,8 @@ export interface AuthUser {
   status: UserStatus;
   emailVerifiedAt: string | null;
   profileImageUrl: string | null;
+  /** True for accounts created by the gym until the person sets their own password. */
+  mustChangePassword?: boolean;
 }
 
 export interface AuthTokens {
@@ -38,6 +40,8 @@ export interface AuthResponse {
 export interface ApiErrorResponse {
   statusCode: number;
   message: string;
+  /** Machine-readable reason for a few cases clients must react to, e.g. PASSWORD_CHANGE_REQUIRED. */
+  code?: string;
   errors?: Record<string, string[]>;
   requestId: string;
   timestamp: string;

@@ -18,6 +18,8 @@ export class AnalyticsService {
     const [
       totalMembers,
       activeMembers,
+      newMembersLast30Days,
+      membershipsActive,
       membershipsExpiringSoon,
       membershipsExpired,
       upcomingClasses,
@@ -31,6 +33,8 @@ export class AnalyticsService {
     ] = await Promise.all([
       db.user.count({ where: { role: "MEMBER" } }),
       db.user.count({ where: { role: "MEMBER", status: "ACTIVE" } }),
+      db.user.count({ where: { role: "MEMBER", createdAt: { gte: last30 } } }),
+      db.membership.count({ where: { status: "ACTIVE", endDate: { gte: now } } }),
       db.membership.count({ where: { status: "ACTIVE", endDate: { gte: now, lte: soon } } }),
       db.membership.count({ where: { status: "ACTIVE", endDate: { lt: now } } }),
       db.class.count({ where: { status: "SCHEDULED", startTime: { gte: now, lte: soon } } }),
@@ -51,8 +55,8 @@ export class AnalyticsService {
 
     return {
       generatedAt: now.toISOString(),
-      members: { total: totalMembers, active: activeMembers },
-      memberships: { expiringSoon: membershipsExpiringSoon, expired: membershipsExpired },
+      members: { total: totalMembers, active: activeMembers, newLast30Days: newMembersLast30Days },
+      memberships: { active: membershipsActive, expiringSoon: membershipsExpiringSoon, expired: membershipsExpired },
       classes: { upcoming: upcomingClasses },
       bookings: {
         utilizationPercent: capacitySum > 0 ? Math.round((bookedSum / capacitySum) * 100) : null,

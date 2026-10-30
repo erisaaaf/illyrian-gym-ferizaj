@@ -9,7 +9,9 @@ import { BookingStatus, ClassStatus, NotificationType, Prisma } from "@illyrian/
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditService } from "../../common/audit/audit.service";
 import { paginate, skipTake } from "../../common/pagination.util";
-import { computeMembershipStatus } from "../../common/membership-status.util";
+import { allowsEntry, computeMembershipStatus } from "../../common/membership-status.util";
+import { findCurrentMembership } from "../../common/current-membership";
+import { GymRulesService } from "../../common/gym-rules.service";
 import { ListBookingsQueryDto } from "./dto/list-bookings.query.dto";
 
 const BOOKING_INCLUDE = {
@@ -22,6 +24,7 @@ export class BookingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly rules: GymRulesService,
   ) {}
 
   /**
@@ -36,12 +39,15 @@ export class BookingsService {
       throw new ForbiddenException("Your account is not active");
     }
 
-    const membership = await this.prisma.client.membership.findFirst({
-      where: { userId },
-      orderBy: { endDate: "desc" },
-    });
-    const membershipStatus = membership ? computeMembershipStatus(membership) : "NONE";
-    if (membershipStatus === "EXPIRED" || membershipStatus === "CANCELLED" || membershipStatus === "NONE") {
+    // Membership restrictions: only an ACTIVE / EXPIRING SOON membership can book. Frozen, expired,
+    // cancelled or missing memberships are refused with a reason the member can act on.
+    const membership = await findCurrentMembership(this.prisma, userId);
+    const { expiringSoonDays } = await this.rules.get();
+    const membershipStatus = membership ? computeMembershipStatus(membership, { expiringSoonDays }) : "NONE";
+    if (membershipStatus === "FROZEN") {
+      throw new ForbiddenException("Your membership is frozen. Bookings resume when the freeze ends.");
+    }
+    if (membershipStatus === "NONE" || !allowsEntry(membershipStatus)) {
       throw new ForbiddenException("An active membership is required to book a class");
     }
 
@@ -161,17 +167,42 @@ export class BookingsService {
   async list(query: ListBookingsQueryDto) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
+    const upcoming = query.upcoming === "true";
+
+    const classFilter: Prisma.ClassWhereInput = {
+      ...(upcoming ? { endTime: { gte: new Date() } } : {}),
+      ...(query.from || query.to
+        ? {
+            startTime: {
+              ...(query.from ? { gte: new Date(query.from) } : {}),
+              ...(query.to ? { lte: new Date(query.to) } : {}),
+            },
+          }
+        : {}),
+    };
+
     const where: Prisma.BookingWhereInput = {
       ...(query.classId ? { classId: query.classId } : {}),
       ...(query.userId ? { userId: query.userId } : {}),
-      ...(query.status ? { status: query.status } : {}),
+      ...(upcoming ? { status: { in: [BookingStatus.BOOKED, BookingStatus.WAITLISTED] } } : query.status ? { status: query.status } : {}),
+      ...(Object.keys(classFilter).length > 0 ? { class: classFilter } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { user: { firstName: { contains: query.search, mode: "insensitive" } } },
+              { user: { lastName: { contains: query.search, mode: "insensitive" } } },
+              { user: { email: { contains: query.search, mode: "insensitive" } } },
+              { class: { title: { contains: query.search, mode: "insensitive" } } },
+            ],
+          }
+        : {}),
     };
 
     const [data, total] = await this.prisma.client.$transaction([
       this.prisma.client.booking.findMany({
         where,
         include: BOOKING_INCLUDE,
-        orderBy: { bookedAt: "desc" },
+        orderBy: upcoming ? { class: { startTime: "asc" } } : { bookedAt: "desc" },
         ...skipTake(page, pageSize),
       }),
       this.prisma.client.booking.count({ where }),

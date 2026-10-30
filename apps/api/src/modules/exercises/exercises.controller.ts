@@ -12,8 +12,8 @@ export class ExercisesController {
   constructor(private readonly exercisesService: ExercisesService) {}
 
   @Get()
-  list(@Query() query: ListExercisesQueryDto) {
-    return this.exercisesService.list(query);
+  list(@Query() query: ListExercisesQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.exercisesService.list(query, user.role !== Role.MEMBER);
   }
 
   @Get(":id")

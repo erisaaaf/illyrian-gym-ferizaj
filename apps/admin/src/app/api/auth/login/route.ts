@@ -17,13 +17,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(data, { status: apiRes.status });
   }
 
-  // The API doesn't know which client is calling it (trainers and members
-  // sign in to the mobile app through the same /auth/login), so the
-  // "administrators only" rule for this dashboard is enforced here,
-  // server-side, before any cookie is ever set.
-  if (!DASHBOARD_ROLES.includes(data.user.role)) {
+  // The API doesn't know which client is calling it (members sign in to the mobile app through the
+  // same /auth/login), so "staff only" for this dashboard is enforced here, server-side, before any
+  // cookie is ever set.
+  if (!(DASHBOARD_ROLES as readonly string[]).includes(data.user.role)) {
     return NextResponse.json(
-      { statusCode: 403, message: "This dashboard is for administrators only. Trainers and members use the mobile app." },
+      { statusCode: 403, message: "This dashboard is for gym staff. Members use the mobile app." },
       { status: 403 },
     );
   }

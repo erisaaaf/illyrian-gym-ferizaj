@@ -25,8 +25,8 @@ export class ClassesController {
   // Participant names are only for staff running the class.
   @Roles(Role.ADMIN, Role.COACH)
   @Get(":id/participants")
-  participants(@Param("id") id: string) {
-    return this.classesService.participants(id);
+  participants(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.classesService.participants(id, user);
   }
 
   @Roles(Role.ADMIN)

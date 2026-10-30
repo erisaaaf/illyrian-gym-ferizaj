@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsPositive, IsString, MaxLength, MinLength } from "class-validator";
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsPositive, IsString, MaxLength, MinLength } from "class-validator";
 
 export class CreateMembershipPlanDto {
   @IsString()
@@ -15,9 +15,24 @@ export class CreateMembershipPlanDto {
   @IsPositive()
   durationDays!: number;
 
-  // Nullable/optional on purpose - real Illyrian Gym pricing has not been
-  // provided. Leave unset until authorized staff enters it (see spec
-  // section 4/38 - never invent prices).
+  /** What the package covers: Gym, CrossFit or Combined. */
+  @IsOptional()
+  @IsIn(["GYM", "CROSSFIT", "COMBINED"])
+  planType?: "GYM" | "CROSSFIT" | "COMBINED";
+
+  @IsOptional()
+  @IsIn(["MONTHLY", "QUARTERLY", "SEMIANNUAL", "ANNUAL", "CUSTOM"])
+  period?: "MONTHLY" | "QUARTERLY" | "SEMIANNUAL" | "ANNUAL" | "CUSTOM";
+
+  /** Services included, as the gym words them (nothing is pre-filled). */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(120, { each: true })
+  services?: string[];
+
+  /** Left empty until the gym confirms pricing. */
   @IsOptional()
   @IsInt()
   @IsPositive()

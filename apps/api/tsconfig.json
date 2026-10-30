@@ -11,6 +11,9 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "incremental": true,
+    // Keep the incremental cache inside outDir: Nest deletes dist on every start, and a cache that
+    // outlives it makes tsc think main.js is already emitted ("Cannot find module dist/main").
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "skipLibCheck": true,
     "strictNullChecks": true,
     "noImplicitAny": true,

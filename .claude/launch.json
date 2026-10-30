@@ -1,0 +1,39 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "start:dev",
+        "--workspace=apps/api"
+      ],
+      "port": 3010
+    },
+    {
+      "name": "admin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--workspace=apps/admin"
+      ],
+      "port": 3001
+    },
+    {
+      "name": "mobile",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8082",
+        "--clear"
+      ],
+      "port": 8082,
+      "cwd": "apps/mobile"
+    }
+  ]
+}

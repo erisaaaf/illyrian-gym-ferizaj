@@ -11,9 +11,12 @@ import { Button } from "../../../components/ui/button";
 import { ConfirmDialog } from "../../../components/ui/confirm-dialog";
 import { ResetPasswordModal } from "../../../components/reset-password-modal";
 import { CoachFormModal } from "./coach-form-modal";
+import { CoachDetailModal } from "./coach-detail-modal";
+import { ReceptionStaff } from "./reception-staff";
+import { Tabs } from "../../../components/ui/tabs";
 import { CoachListItem, PaginatedCoaches } from "./types";
 
-export default function CoachesPage() {
+function Trainers() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [page, setPage] = useState(1);
@@ -24,6 +27,7 @@ export default function CoachesPage() {
   const [editing, setEditing] = useState<CoachListItem | null>(null);
   const [statusTarget, setStatusTarget] = useState<CoachListItem | null>(null);
   const [resetTarget, setResetTarget] = useState<CoachListItem | null>(null);
+  const [viewing, setViewing] = useState<CoachListItem | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -44,7 +48,7 @@ export default function CoachesPage() {
   return (
     <div>
       <PageHeader
-        title="Coaches"
+        title="Trainers"
         description="Trainer accounts and profiles. Creating a trainer here creates both their login and coach profile together."
         action={
           <Button
@@ -103,6 +107,9 @@ export default function CoachesPage() {
                   </Td>
                   <Td>
                     <div className="flex gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => setViewing(c)}>
+                        View
+                      </Button>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -129,6 +136,7 @@ export default function CoachesPage() {
         </>
       )}
 
+      <CoachDetailModal coach={viewing} onClose={() => setViewing(null)} />
       <CoachFormModal open={formOpen} onClose={() => setFormOpen(false)} onSaved={load} coach={editing} />
 
       <ResetPasswordModal
@@ -157,6 +165,26 @@ export default function CoachesPage() {
         confirmLabel={statusTarget?.isActive ? "Deactivate" : "Reactivate"}
         danger={!!statusTarget?.isActive}
       />
+    </div>
+  );
+}
+
+export default function StaffPage() {
+  const [tab, setTab] = useState("trainers");
+  return (
+    <div>
+      <div className="mb-5">
+        <Tabs
+          label="Staff sections"
+          active={tab}
+          onChange={setTab}
+          items={[
+            { id: "trainers", label: "Trainers" },
+            { id: "reception", label: "Reception" },
+          ]}
+        />
+      </div>
+      {tab === "trainers" ? <Trainers /> : <ReceptionStaff />}
     </div>
   );
 }

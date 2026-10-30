@@ -3,10 +3,93 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   background-color: theme("colors.background");
   color: theme("colors.text-primary");
+  font-family: var(--font-manrope), system-ui, sans-serif;
+  font-feature-settings: "tnum" 0;
+}
+
+/* Keyboard focus: a lime ring with an ink inner line is visible on white, mint, ink and lime surfaces. */
+:focus-visible {
+  outline: 2px solid theme("colors.ink");
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px theme("colors.lime");
+  border-radius: 8px;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline-offset: 0;
+  box-shadow: 0 0 0 3px theme("colors.lime");
+}
+
+::selection {
+  background: theme("colors.lime");
+  color: theme("colors.ink");
+}
+
+@layer components {
+  /* Website heading style: Sora 800, tight tracking, line-height ~1 */
+  .heading-display {
+    @apply font-heading font-extrabold tracking-heading leading-[1.05];
+  }
+  /* Website eyebrow: small, uppercase, widely tracked, brand colour */
+  .eyebrow {
+    @apply text-[11px] font-bold uppercase tracking-eyebrow text-accent-text;
+  }
+  /* Website card: white, hairline border, large radius */
+  .card {
+    @apply rounded-lg border border-border bg-surface shadow-card;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Respect the user's motion preference everywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  aside,
+  header,
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+  /* Printing a card or invoice prints only that block, not the page behind the dialog. */
+  body:has(.print-area) * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-area {
+    position: fixed;
+    left: 50%;
+    top: 24px;
+    transform: translateX(-50%);
+    width: 320px;
+  }
 }

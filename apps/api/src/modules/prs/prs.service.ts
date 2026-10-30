@@ -1,3 +1,5 @@
+import { AuthenticatedUser } from "../../common/decorators/current-user.decorator";
+import { assertCanAccessClient, clientScope } from "../../common/client-access";
 import { randomUUID } from "crypto";
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, PrType, PrUnit, VerificationStatus } from "@illyrian/database";
@@ -130,10 +132,12 @@ export class PrsService {
     });
   }
 
-  async list(query: ListPrsQueryDto) {
+  async list(query: ListPrsQueryDto, viewer: AuthenticatedUser) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
+    const scope = clientScope(viewer); // trainers only ever see their own clients' records
     const where: Prisma.PersonalRecordWhereInput = {
+      ...(scope ? { user: scope } : {}),
       ...(query.userId ? { userId: query.userId } : {}),
       ...(query.exerciseId ? { exerciseId: query.exerciseId } : {}),
       ...(query.verificationStatus ? { verificationStatus: query.verificationStatus } : {}),
@@ -161,9 +165,10 @@ export class PrsService {
     return paginate(data, total, page, pageSize);
   }
 
-  async history(id: string) {
+  async history(id: string, viewer: AuthenticatedUser) {
     const pr = await this.prisma.client.personalRecord.findUnique({ where: { id } });
     if (!pr) throw new NotFoundException("Personal record not found");
+    await assertCanAccessClient(this.prisma, viewer, pr.userId);
     return this.prisma.client.personalRecordHistory.findMany({
       where: { personalRecordId: id },
       orderBy: { achievedAt: "asc" },
@@ -171,9 +176,11 @@ export class PrsService {
     });
   }
 
-  async verify(id: string, actorId: string) {
+  async verify(id: string, viewer: AuthenticatedUser) {
+    const actorId = viewer.sub;
     const pr = await this.prisma.client.personalRecord.findUnique({ where: { id } });
     if (!pr) throw new NotFoundException("Personal record not found");
+    await assertCanAccessClient(this.prisma, viewer, pr.userId);
 
     const updated = await this.prisma.client.personalRecord.update({
       where: { id },
@@ -186,9 +193,11 @@ export class PrsService {
   }
 
   /** Explicit staff override of the current value - always applied, logged with source=CORRECTED. */
-  async correct(id: string, dto: CorrectPrDto, actorId: string) {
+  async correct(id: string, dto: CorrectPrDto, viewer: AuthenticatedUser) {
+    const actorId = viewer.sub;
     const pr = await this.prisma.client.personalRecord.findUnique({ where: { id } });
     if (!pr) throw new NotFoundException("Personal record not found");
+    await assertCanAccessClient(this.prisma, viewer, pr.userId);
 
     const previousValue = Number(pr.value);
     const achievedAt = new Date(dto.achievedAt);
@@ -226,7 +235,9 @@ export class PrsService {
   }
 
   /** Staff entering a PR that has no digital history yet - only allowed when none exists. */
-  async manualAdd(dto: ManualPrDto, actorId: string) {
+  async manualAdd(dto: ManualPrDto, viewer: AuthenticatedUser) {
+    const actorId = viewer.sub;
+    await assertCanAccessClient(this.prisma, viewer, dto.userId);
     const [user, exercise] = await Promise.all([
       this.prisma.client.user.findUnique({ where: { id: dto.userId } }),
       this.prisma.client.exercise.findUnique({ where: { id: dto.exerciseId } }),

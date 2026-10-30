@@ -5,8 +5,8 @@ import { api, ApiError } from "./api";
 
 export interface Overview {
   generatedAt: string;
-  members: { total: number; active: number };
-  memberships: { expiringSoon: number; expired: number };
+  members: { total: number; active: number; newLast30Days: number };
+  memberships: { active: number; expiringSoon: number; expired: number };
   classes: { upcoming: number };
   bookings: { utilizationPercent: number | null; bookedSpots: number; totalCapacity: number };
   training: { attendanceLast30Days: number; workoutsLast30Days: number; newPrsLast30Days: number };

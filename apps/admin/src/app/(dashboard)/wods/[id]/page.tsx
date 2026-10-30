@@ -6,7 +6,7 @@ import { api, ApiError } from "../../../../lib/api";
 import { PageHeader } from "../../../../components/ui/page-header";
 import { TextField, TextAreaField, SelectField } from "../../../../components/ui/field";
 import { Button } from "../../../../components/ui/button";
-import { LoadingState, ErrorState } from "../../../../components/ui/states";
+import { LoadingState } from "../../../../components/ui/states";
 import { formatStatus } from "../../../../components/ui/badge";
 import { SECTION_TYPES, WOD_TYPES, WodDetail, WodSectionItem } from "../types";
 

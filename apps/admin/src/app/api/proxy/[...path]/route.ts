@@ -30,11 +30,13 @@ async function forward(req: NextRequest, path: string[]) {
     body: body && body.length > 0 ? body : undefined,
   });
 
-  const text = await res.text();
-  return new NextResponse(text, {
-    status: res.status,
-    headers: { "Content-Type": res.headers.get("Content-Type") ?? "application/json" },
-  });
+  // Bytes, not text: exports (PDF, Excel) and member photos are binary and must not be re-encoded.
+  const headers: Record<string, string> = { "Content-Type": res.headers.get("Content-Type") ?? "application/json" };
+  for (const name of ["Content-Disposition", "Cache-Control", "X-Content-Type-Options"]) {
+    const value = res.headers.get(name);
+    if (value) headers[name] = value;
+  }
+  return new NextResponse(res.status === 204 ? null : await res.arrayBuffer(), { status: res.status, headers });
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {

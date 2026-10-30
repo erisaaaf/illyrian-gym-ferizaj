@@ -1,13 +1,48 @@
 import { ApiErrorResponse, AuthResponse, AuthTokens } from "@illyrian/types";
 import { tokenStorage } from "./token-storage";
+import { API_TARGET, API_URL } from "./api-config";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+const devLog = (message: string) => {
+  if (__DEV__) console.warn(`[api] ${message}`);
+};
+
+if (__DEV__) console.log(`[api] base URL ${API_URL} (${API_TARGET.source})`);
+
+/** The request never got an HTTP response: server down, wrong address, blocked by a firewall/CORS, offline. */
+export class NetworkError extends Error {
+  constructor(
+    public method: string,
+    public url: string,
+    public cause?: unknown,
+  ) {
+    super("Could not reach the server. Please try again.");
+    this.name = "NetworkError";
+  }
+}
+
+/**
+ * fetch() that reports transport failures with enough context to debug them in
+ * development - method, URL (path only, no query/body), error type - and never
+ * touches headers, bodies or tokens.
+ */
+async function send(path: string, init: RequestInit & { method: string }): Promise<Response> {
+  const url = `${API_URL}${path}`;
+  try {
+    const res = await fetch(url, init);
+    if (!res.ok) devLog(`${init.method} ${path.split("?")[0]} -> HTTP ${res.status}`);
+    return res;
+  } catch (e) {
+    devLog(`${init.method} ${url.split("?")[0]} failed before any response (${(e as Error)?.name ?? "error"}: ${(e as Error)?.message ?? "unknown"}). Is the API running and reachable from this device at ${API_URL}?`);
+    throw new NetworkError(init.method, url.split("?")[0], e);
+  }
+}
 
 export class ApiError extends Error {
   constructor(
     public statusCode: number,
     message: string,
     public errors?: Record<string, string[]>,
+    public code?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -28,7 +63,7 @@ async function refreshTokens(): Promise<void> {
   const refreshToken = await tokenStorage.getRefreshToken();
   if (!refreshToken) throw new SessionExpiredError();
 
-  const res = await fetch(`${API_URL}/auth/refresh`, {
+  const res = await send("/auth/refresh", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refreshToken }),
@@ -58,7 +93,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       const accessToken = await tokenStorage.getAccessToken();
       if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
     }
-    return fetch(`${API_URL}${path}`, {
+    return send(path, {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -81,11 +116,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (!res.ok) {
     const errorBody = (await res.json().catch(() => null)) as ApiErrorResponse | null;
-    throw new ApiError(res.status, errorBody?.message ?? "Request failed", errorBody?.errors);
+    throw new ApiError(res.status, errorBody?.message ?? "Request failed", errorBody?.errors, errorBody?.code);
   }
 
-  if (res.status === 204) return undefined as T;
-  return res.json();
+  // Some endpoints legitimately return an empty 200 body (e.g. "no WOD today"); treat it as null.
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
 }
 
 export const apiClient = {
@@ -106,7 +142,7 @@ export async function logout(): Promise<void> {
   const refreshToken = await tokenStorage.getRefreshToken();
   await tokenStorage.clear();
   if (refreshToken) {
-    await fetch(`${API_URL}/auth/logout`, {
+    await send("/auth/logout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken }),

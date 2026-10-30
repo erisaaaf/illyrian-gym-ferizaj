@@ -19,7 +19,8 @@
     "db:migrate:deploy": "npm run migrate:deploy --workspace=packages/database",
     "db:seed": "npm run seed --workspace=packages/database",
     "db:seed:demo": "npm run seed:demo --workspace=packages/database",
-    "db:studio": "npm run studio --workspace=packages/database"
+    "db:studio": "npm run studio --workspace=packages/database",
+    "doctor": "node scripts/dev-doctor.js"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -35,9 +36,9 @@
     "multer": "^2.4.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "react-native": "0.86.3"
+    "react-native": "0.88.1"
   },
   "dependencies": {
-    "react-native": "0.86.3"
+    "react-native": "0.88.1"
   }
 }

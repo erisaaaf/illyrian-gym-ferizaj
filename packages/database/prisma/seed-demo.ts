@@ -1,4 +1,5 @@
 import * as bcrypt from "bcryptjs";
+import { createHash } from "node:crypto";
 import {
   PrismaClient,
   Role,
@@ -10,6 +11,7 @@ import {
   BookingStatus,
   AttendanceStatus,
 } from "../generated/client";
+import { seedDemoOperations } from "./seed-demo-operations";
 
 const prisma = new PrismaClient();
 
@@ -29,6 +31,41 @@ const DEV_PASSWORD = "DevPassword!123";
 const DEMO_TRAINER_EMAIL = "trainer@illyriangym.local";
 const DEMO_MEMBER_EMAIL = "member@illyriangym.local";
 
+// WOD dates are date-only values stored as UTC midnight of the gym's calendar
+// date (same convention as apps/api/src/common/gym-time.ts).
+const GYM_TIMEZONE = process.env.GYM_TIMEZONE ?? "Europe/Belgrade";
+function gymDate(offsetDays = 0, from = new Date()) {
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: GYM_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(from);
+  const d = new Date(`${day}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + offsetDays);
+  return d;
+}
+
+// Demo rows get stable, UUID-shaped ids (derived from a readable name) so the
+// seed is idempotent AND the data passes the API's own @IsUUID() validation -
+// a booking or workout against a seeded class/WOD must behave like real data.
+function demoId(name: string): string {
+  const h = createHash("sha1").update(`illyrian-gym-demo:${name}`).digest("hex");
+  const variant = ((parseInt(h.slice(16, 18), 16) & 0x3f) | 0x80).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(18, 20)}-${h.slice(20, 32)}`;
+}
+
+/** Earlier versions of this seed used ids like "seed-class-0". Remove those demo rows so only the UUID-keyed set remains. */
+async function removeLegacyDemoRows() {
+  const legacy = { startsWith: "seed-" };
+  await prisma.$transaction([
+    prisma.attendance.deleteMany({ where: { class: { id: legacy } } }),
+    prisma.personalRecordHistory.deleteMany({ where: { id: legacy } }),
+    prisma.personalRecord.deleteMany({ where: { sourceWorkoutId: legacy } }),
+    prisma.booking.deleteMany({ where: { id: legacy } }),
+    prisma.workoutResult.deleteMany({ where: { id: legacy } }),
+    prisma.wod.deleteMany({ where: { id: legacy } }),
+    prisma.class.deleteMany({ where: { id: legacy } }),
+    prisma.membership.deleteMany({ where: { id: legacy } }),
+    prisma.membershipPlan.deleteMany({ where: { id: legacy } }),
+  ]);
+}
+
 async function hashPassword(plain: string) {
   return bcrypt.hash(plain, 10);
 }
@@ -38,6 +75,7 @@ async function main() {
     throw new Error("Refusing to run the demo seed with NODE_ENV=production.");
   }
   console.log("Seeding optional demo data...");
+  await removeLegacyDemoRows();
 
   const passwordHash = await hashPassword(DEV_PASSWORD);
   const now = new Date();
@@ -118,9 +156,9 @@ async function main() {
 
   // --- Membership plans + memberships ---
   const monthlyPlan = await prisma.membershipPlan.upsert({
-    where: { id: "seed-plan-monthly" },
+    where: { id: demoId("seed-plan-monthly") },
     update: {},
-    create: { id: "seed-plan-monthly", name: "Monthly Unlimited", durationDays: 30, isActive: true },
+    create: { id: demoId("seed-plan-monthly"), name: "Monthly Unlimited", durationDays: 30, isActive: true },
   });
 
   const in25Days = new Date(now.getTime() + 25 * 86400000);
@@ -129,10 +167,10 @@ async function main() {
 
   for (const [i, member] of members.entries()) {
     await prisma.membership.upsert({
-      where: { id: `seed-membership-${i}` },
+      where: { id: demoId(`seed-membership-${i}`) },
       update: {},
       create: {
-        id: `seed-membership-${i}`,
+        id: demoId(`seed-membership-${i}`),
         userId: member.id,
         planId: monthlyPlan.id,
         startDate: i % 5 === 0 ? past5Days : now,
@@ -143,10 +181,10 @@ async function main() {
   }
 
   await prisma.membership.upsert({
-    where: { id: "seed-membership-demo-member" },
+    where: { id: demoId("seed-membership-demo-member") },
     update: {},
     create: {
-      id: "seed-membership-demo-member",
+      id: demoId("seed-membership-demo-member"),
       userId: demoMemberUser.id,
       planId: monthlyPlan.id,
       startDate: past5Days,
@@ -163,16 +201,17 @@ async function main() {
 
   // --- Classes: upcoming (bookable) ---
   const upcomingClasses = [];
+  // Always in the future (tomorrow onwards) so they stay bookable no matter when the seed runs.
   for (let d = 0; d < 5; d++) {
-    const start = new Date(now.getTime() + d * 86400000);
+    const start = new Date(now.getTime() + (d + 1) * 86400000);
     start.setHours(18, 0, 0, 0);
     const end = new Date(start.getTime() + 60 * 60000);
     const coachForClass = d === 0 ? demoCoach : coaches[d % coaches.length];
     const cls = await prisma.class.upsert({
-      where: { id: `seed-class-${d}` },
-      update: { bookedCount: d === 0 ? 1 : 0 },
+      where: { id: demoId(`seed-class-${d}`) },
+      update: { startTime: start, endTime: end, status: ClassStatus.SCHEDULED, bookedCount: d === 0 ? 1 : 0 },
       create: {
-        id: `seed-class-${d}`,
+        id: demoId(`seed-class-${d}`),
         title: "CrossFit Group Class",
         coachId: coachForClass.id,
         startTime: start,
@@ -192,10 +231,10 @@ async function main() {
     start.setHours(18, 0, 0, 0);
     const end = new Date(start.getTime() + 60 * 60000);
     const cls = await prisma.class.upsert({
-      where: { id: `seed-class-past-${d}` },
-      update: {},
+      where: { id: demoId(`seed-class-past-${d}`) },
+      update: { startTime: start, endTime: end },
       create: {
-        id: `seed-class-past-${d}`,
+        id: demoId(`seed-class-past-${d}`),
         title: "CrossFit Group Class",
         coachId: demoCoach.id,
         startTime: start,
@@ -210,10 +249,10 @@ async function main() {
 
   // --- Demo member: upcoming booking on the demo trainer's class (seed-class-0) ---
   await prisma.booking.upsert({
-    where: { id: "seed-booking-demo-upcoming" },
+    where: { id: demoId("seed-booking-demo-upcoming") },
     update: {},
     create: {
-      id: "seed-booking-demo-upcoming",
+      id: demoId("seed-booking-demo-upcoming"),
       userId: demoMemberUser.id,
       classId: upcomingClasses[0].id,
       status: BookingStatus.BOOKED,
@@ -222,10 +261,10 @@ async function main() {
 
   // --- Demo member: past booking + attendance (checked in) ---
   const pastBooking = await prisma.booking.upsert({
-    where: { id: "seed-booking-demo-past" },
-    update: {},
+    where: { id: demoId("seed-booking-demo-past") },
+    update: { status: BookingStatus.ATTENDED, bookedAt: pastClasses[0].startTime },
     create: {
-      id: "seed-booking-demo-past",
+      id: demoId("seed-booking-demo-past"),
       userId: demoMemberUser.id,
       classId: pastClasses[0].id,
       status: BookingStatus.ATTENDED,
@@ -234,7 +273,7 @@ async function main() {
   });
   await prisma.attendance.upsert({
     where: { userId_classId: { userId: demoMemberUser.id, classId: pastClasses[0].id } },
-    update: {},
+    update: { status: AttendanceStatus.CHECKED_IN, checkedInAt: pastClasses[0].startTime },
     create: {
       userId: demoMemberUser.id,
       classId: pastClasses[0].id,
@@ -250,12 +289,12 @@ async function main() {
   const rowExercise = await exercise("Row (500m)");
 
   const todayWod = await prisma.wod.upsert({
-    where: { id: "seed-wod-today" },
-    update: {},
+    where: { id: demoId("seed-wod-today") },
+    update: { date: gymDate(0), status: WodStatus.PUBLISHED },
     create: {
-      id: "seed-wod-today",
+      id: demoId("seed-wod-today"),
       title: "Illyrian Strength & Metcon",
-      date: new Date(new Date().toDateString()),
+      date: gymDate(0),
       type: WodType.AMRAP,
       status: WodStatus.PUBLISHED,
       createdById: demoTrainerUser.id,
@@ -285,12 +324,12 @@ async function main() {
 
   // A second, draft WOD for the trainer to test publish/unpublish with.
   await prisma.wod.upsert({
-    where: { id: "seed-wod-draft" },
-    update: {},
+    where: { id: demoId("seed-wod-draft") },
+    update: { date: gymDate(1) },
     create: {
-      id: "seed-wod-draft",
+      id: demoId("seed-wod-draft"),
       title: "Tomorrow's Gymnastics Skill Work",
-      date: new Date(now.getTime() + 86400000),
+      date: gymDate(1),
       type: WodType.EMOM,
       status: WodStatus.DRAFT,
       createdById: demoTrainerUser.id,
@@ -321,11 +360,11 @@ async function main() {
     durationSeconds?: number;
     reps?: number;
   }> = [
-    { id: "seed-workout-demo-1", exerciseName: "Back Squat", daysAgo: 14, weightKg: 80 },
-    { id: "seed-workout-demo-2", exerciseName: "Back Squat", daysAgo: 3, weightKg: 90 },
-    { id: "seed-workout-demo-3", exerciseName: "Row (500m)", daysAgo: 10, durationSeconds: 130 },
-    { id: "seed-workout-demo-4", exerciseName: "Row (500m)", daysAgo: 2, durationSeconds: 122 },
-    { id: "seed-workout-demo-5", exerciseName: "Pull-up", daysAgo: 7, reps: 8 },
+    { id: demoId("seed-workout-demo-1"), exerciseName: "Back Squat", daysAgo: 14, weightKg: 80 },
+    { id: demoId("seed-workout-demo-2"), exerciseName: "Back Squat", daysAgo: 3, weightKg: 90 },
+    { id: demoId("seed-workout-demo-3"), exerciseName: "Row (500m)", daysAgo: 10, durationSeconds: 130 },
+    { id: demoId("seed-workout-demo-4"), exerciseName: "Row (500m)", daysAgo: 2, durationSeconds: 122 },
+    { id: demoId("seed-workout-demo-5"), exerciseName: "Pull-up", daysAgo: 7, reps: 8 },
   ];
 
   for (const w of workoutSeeds) {
@@ -352,7 +391,7 @@ async function main() {
   // notes in prs.service.ts for the authoritative logic this mirrors).
   const backSquatPr = await prisma.personalRecord.upsert({
     where: { userId_exerciseId: { userId: demoMemberUser.id, exerciseId: backSquat.id } },
-    update: { value: 90, sourceWorkoutId: "seed-workout-demo-2", achievedAt: new Date(now.getTime() - 3 * 86400000) },
+    update: { value: 90, sourceWorkoutId: demoId("seed-workout-demo-2"), achievedAt: new Date(now.getTime() - 3 * 86400000) },
     create: {
       userId: demoMemberUser.id,
       exerciseId: backSquat.id,
@@ -360,15 +399,15 @@ async function main() {
       value: 90,
       unit: "KG",
       achievedAt: new Date(now.getTime() - 3 * 86400000),
-      sourceWorkoutId: "seed-workout-demo-2",
+      sourceWorkoutId: demoId("seed-workout-demo-2"),
       verificationStatus: "UNVERIFIED",
     },
   });
   await prisma.personalRecordHistory.upsert({
-    where: { id: "seed-pr-history-backsquat-1" },
+    where: { id: demoId("seed-pr-history-backsquat-1") },
     update: {},
     create: {
-      id: "seed-pr-history-backsquat-1",
+      id: demoId("seed-pr-history-backsquat-1"),
       personalRecordId: backSquatPr.id,
       userId: demoMemberUser.id,
       exerciseId: backSquat.id,
@@ -376,15 +415,15 @@ async function main() {
       newValue: 80,
       unit: "KG",
       achievedAt: new Date(now.getTime() - 14 * 86400000),
-      sourceWorkoutId: "seed-workout-demo-1",
+      sourceWorkoutId: demoId("seed-workout-demo-1"),
       source: "AUTO_DETECTED",
     },
   });
   await prisma.personalRecordHistory.upsert({
-    where: { id: "seed-pr-history-backsquat-2" },
+    where: { id: demoId("seed-pr-history-backsquat-2") },
     update: {},
     create: {
-      id: "seed-pr-history-backsquat-2",
+      id: demoId("seed-pr-history-backsquat-2"),
       personalRecordId: backSquatPr.id,
       userId: demoMemberUser.id,
       exerciseId: backSquat.id,
@@ -392,14 +431,14 @@ async function main() {
       newValue: 90,
       unit: "KG",
       achievedAt: new Date(now.getTime() - 3 * 86400000),
-      sourceWorkoutId: "seed-workout-demo-2",
+      sourceWorkoutId: demoId("seed-workout-demo-2"),
       source: "AUTO_DETECTED",
     },
   });
 
   const rowPr = await prisma.personalRecord.upsert({
     where: { userId_exerciseId: { userId: demoMemberUser.id, exerciseId: rowExercise.id } },
-    update: { value: 122, sourceWorkoutId: "seed-workout-demo-4", achievedAt: new Date(now.getTime() - 2 * 86400000) },
+    update: { value: 122, sourceWorkoutId: demoId("seed-workout-demo-4"), achievedAt: new Date(now.getTime() - 2 * 86400000) },
     create: {
       userId: demoMemberUser.id,
       exerciseId: rowExercise.id,
@@ -407,17 +446,17 @@ async function main() {
       value: 122,
       unit: "SECONDS",
       achievedAt: new Date(now.getTime() - 2 * 86400000),
-      sourceWorkoutId: "seed-workout-demo-4",
+      sourceWorkoutId: demoId("seed-workout-demo-4"),
       verificationStatus: "VERIFIED",
       verifiedById: demoTrainerUser.id,
       verifiedAt: now,
     },
   });
   await prisma.personalRecordHistory.upsert({
-    where: { id: "seed-pr-history-row-1" },
+    where: { id: demoId("seed-pr-history-row-1") },
     update: {},
     create: {
-      id: "seed-pr-history-row-1",
+      id: demoId("seed-pr-history-row-1"),
       personalRecordId: rowPr.id,
       userId: demoMemberUser.id,
       exerciseId: rowExercise.id,
@@ -425,15 +464,15 @@ async function main() {
       newValue: 130,
       unit: "SECONDS",
       achievedAt: new Date(now.getTime() - 10 * 86400000),
-      sourceWorkoutId: "seed-workout-demo-3",
+      sourceWorkoutId: demoId("seed-workout-demo-3"),
       source: "AUTO_DETECTED",
     },
   });
   await prisma.personalRecordHistory.upsert({
-    where: { id: "seed-pr-history-row-2" },
+    where: { id: demoId("seed-pr-history-row-2") },
     update: {},
     create: {
-      id: "seed-pr-history-row-2",
+      id: demoId("seed-pr-history-row-2"),
       personalRecordId: rowPr.id,
       userId: demoMemberUser.id,
       exerciseId: rowExercise.id,
@@ -441,7 +480,7 @@ async function main() {
       newValue: 122,
       unit: "SECONDS",
       achievedAt: new Date(now.getTime() - 2 * 86400000),
-      sourceWorkoutId: "seed-workout-demo-4",
+      sourceWorkoutId: demoId("seed-workout-demo-4"),
       source: "AUTO_DETECTED",
     },
   });
@@ -461,6 +500,17 @@ async function main() {
     where: { userId_achievementId: { userId: demoMemberUser.id, achievementId: firstWorkoutAchievement.id } },
     update: {},
     create: { userId: demoMemberUser.id, achievementId: firstWorkoutAchievement.id, earnedAt: new Date(now.getTime() - 14 * 86400000) },
+  });
+
+  await seedDemoOperations({
+    prisma,
+    passwordHash,
+    now,
+    members,
+    demoMemberId: demoMemberUser.id,
+    demoTrainerUserId: demoTrainerUser.id,
+    coachIds: coaches.map((c) => c.id),
+    demoCoachId: demoCoach.id,
   });
 
   console.log("");

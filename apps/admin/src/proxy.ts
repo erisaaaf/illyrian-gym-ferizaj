@@ -46,5 +46,6 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  // Static brand assets (logo, hero photo) must load on the login page, before any session exists.
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|brand/).*)"],
 };

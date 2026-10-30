@@ -7,6 +7,7 @@ import { TextField } from "../../../components/ui/field";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { LoadingState } from "../../../components/ui/states";
+import { GymRules } from "./gym-rules";
 
 interface Me {
   firstName: string;
@@ -31,11 +32,12 @@ interface SystemInfo {
 export default function SettingsPage() {
   return (
     <div>
-      <PageHeader title="Settings" description="Your account, the gym's own details, and what's actually connected." />
+      <PageHeader eyebrow="System" title="Settings" description="Your account, the gym's own details, and what's actually connected." />
       <div className="flex max-w-3xl flex-col gap-6">
         <AccountSection />
         <PasswordSection />
         <GymSection />
+        <GymRules />
         <SystemSection />
       </div>
     </div>
@@ -44,8 +46,8 @@ export default function SettingsPage() {
 
 function Card({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-border bg-surface p-5">
-      <h2 className="text-sm font-semibold text-text-primary">{title}</h2>
+    <section className="card p-5">
+      <h2 className="font-heading text-base font-extrabold tracking-heading text-text-primary">{title}</h2>
       {description && <p className="mb-4 mt-1 text-xs text-text-muted">{description}</p>}
       {!description && <div className="mb-4" />}
       {children}

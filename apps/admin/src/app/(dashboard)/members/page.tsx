@@ -1,126 +1,140 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { api, ApiError, qs } from "../../../lib/api";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { UserPlus } from "lucide-react";
+import { qs } from "../../../lib/api";
 import { useDebouncedValue } from "../../../lib/use-debounced-value";
-import { PageHeader, SearchInput, FilterSelect } from "../../../components/ui/page-header";
+import { useFetch } from "../../../lib/use-fetch";
+import { formatDate, formatMoney, fullName } from "../../../lib/format";
+import { PageHeader, SearchInput } from "../../../components/ui/page-header";
 import { Table, Thead, Th, Tbody, Tr, Td, Pagination } from "../../../components/ui/table";
-import { MembershipStatusBadge, UserStatusBadge } from "../../../components/ui/badge";
-import { LoadingState, ErrorState, DataEmptyState } from "../../../components/ui/states";
+import { MembershipStatusBadge, UserStatusBadge, Badge } from "../../../components/ui/badge";
+import { ErrorState, DataEmptyState, TableSkeleton } from "../../../components/ui/states";
 import { Button } from "../../../components/ui/button";
+import { Tabs } from "../../../components/ui/tabs";
 import { AddMemberModal } from "./add-member-modal";
 
-interface MemberListItem {
+interface MemberRow {
   id: string;
+  memberNumber: string | null;
   firstName: string;
   lastName: string;
   email: string;
+  phone: string | null;
   status: "ACTIVE" | "INACTIVE" | "SUSPENDED";
   createdAt: string;
-  membershipStatus: "ACTIVE" | "EXPIRING_SOON" | "EXPIRED" | "CANCELLED" | "NONE";
-  memberships: Array<{ plan: { name: string } }>;
+  membershipStatus: string;
+  currentMembership: { endDate: string; plan: { name: string } } | null;
+  lastVisitAt: string | null;
+  balanceCents: number;
+  assignedCoach: { user: { firstName: string; lastName: string } } | null;
 }
-
-interface PaginatedMembers {
-  data: MemberListItem[];
+interface Page {
+  data: MemberRow[];
   meta: { page: number; pageSize: number; total: number; totalPages: number };
 }
 
-export default function MembersPage() {
+// The categories from the requirements, in the order the front desk uses them.
+const CATEGORIES = [
+  { id: "ALL", label: "All" },
+  { id: "ACTIVE", label: "Active" },
+  { id: "EXPIRING_SOON", label: "Expiring soon" },
+  { id: "EXPIRED", label: "Expired" },
+  { id: "NEW", label: "New" },
+  { id: "UNPAID", label: "Unpaid" },
+  { id: "FROZEN", label: "Frozen" },
+  { id: "AT_RISK", label: "Not visiting" },
+  { id: "INACTIVE", label: "Inactive" },
+];
+
+function MembersView() {
   const router = useRouter();
+  const params = useSearchParams();
+  const [category, setCategory] = useState(params.get("category") ?? "ALL");
   const [search, setSearch] = useState("");
-  const debouncedSearch = useDebouncedValue(search);
-  const [status, setStatus] = useState("");
+  const debounced = useDebouncedValue(search);
   const [page, setPage] = useState(1);
-  const [result, setResult] = useState<PaginatedMembers | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(params.get("add") === "1");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await api.get<PaginatedMembers>(
-        `admin/members${qs({ search: debouncedSearch, status: status || undefined, page })}`,
-      );
-      setResult(data);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not load members.");
-    } finally {
-      setLoading(false);
-    }
-  }, [debouncedSearch, status, page]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch, status]);
+  useEffect(() => setPage(1), [debounced, category]);
+  const { data, loading, error, reload } = useFetch<Page>(`admin/members${qs({ search: debounced, category: category === "ALL" ? undefined : category, page, pageSize: 20 })}`);
 
   return (
     <div>
       <PageHeader
+        eyebrow="People"
         title="Members"
-        description="Member accounts and who they are. For their commercial membership record, see Memberships."
-        action={<Button onClick={() => setAddOpen(true)}>Add Member</Button>}
+        description="Everyone who trains here. Open a member to sell or renew a membership, take a payment, check them in or see their history."
+        action={
+          <Button variant="primary" onClick={() => setAddOpen(true)}>
+            <UserPlus className="h-4 w-4" aria-hidden="true" />
+            Add member
+          </Button>
+        }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search by name or email..." />
-        <FilterSelect
-          value={status}
-          onChange={setStatus}
-          options={[
-            { value: "", label: "All statuses" },
-            { value: "ACTIVE", label: "Active" },
-            { value: "INACTIVE", label: "Inactive" },
-            { value: "SUSPENDED", label: "Suspended" },
-          ]}
-        />
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <Tabs label="Member category" items={CATEGORIES} active={category} onChange={setCategory} />
+        <SearchInput value={search} onChange={setSearch} placeholder="Name, number, phone or email" label="Search members" />
       </div>
 
-      {loading && <LoadingState label="Loading members..." />}
-      {!loading && error && <ErrorState message={error} onRetry={load} />}
-      {!loading && !error && result && result.data.length === 0 && (
-        <DataEmptyState title="No members found" message="Try a different search or filter, or add a new member." />
+      {error && <ErrorState message={error} onRetry={reload} />}
+      {loading && !data && <TableSkeleton cols={7} />}
+      {data && data.data.length === 0 && (
+        <DataEmptyState title="No members here" message={search || category !== "ALL" ? "No member matches this filter. Try another category or search." : "Add the first member to get started."} />
       )}
-      {!loading && !error && result && result.data.length > 0 && (
-        <>
-          <Table>
+      {data && data.data.length > 0 && (
+        <div className={loading ? "opacity-60 transition" : "transition"}>
+          <Table caption="Members">
             <Thead>
-              <Th>Name</Th>
-              <Th>Email</Th>
+              <Th>Member</Th>
+              <Th>No.</Th>
               <Th>Membership</Th>
+              <Th>Ends</Th>
+              <Th>Last visit</Th>
+              <Th align="right">Owes</Th>
+              <Th>Trainer</Th>
               <Th>Account</Th>
-              <Th>Joined</Th>
             </Thead>
             <Tbody>
-              {result.data.map((m) => (
+              {data.data.map((m) => (
                 <Tr key={m.id} onClick={() => router.push(`/members/${m.id}`)}>
-                  <Td className="font-medium">
-                    {m.firstName} {m.lastName}
-                  </Td>
-                  <Td className="text-text-secondary">{m.email}</Td>
                   <Td>
-                    <MembershipStatusBadge status={m.membershipStatus} />
+                    <p className="font-semibold">{fullName(m)}</p>
+                    <p className="text-xs text-text-muted">{m.phone || m.email}</p>
                   </Td>
+                  <Td className="tabular text-text-secondary">{m.memberNumber ?? "—"}</Td>
+                  <Td>
+                    <div className="flex flex-col items-start gap-1">
+                      <MembershipStatusBadge status={m.membershipStatus} />
+                      <span className="text-xs text-text-muted">{m.currentMembership?.plan.name ?? "No membership"}</span>
+                    </div>
+                  </Td>
+                  <Td className="text-text-secondary">{formatDate(m.currentMembership?.endDate)}</Td>
+                  <Td className="text-text-secondary">{m.lastVisitAt ? formatDate(m.lastVisitAt) : "Never"}</Td>
+                  <Td align="right">{m.balanceCents > 0 ? <Badge variant="warning">{formatMoney(m.balanceCents)}</Badge> : <span className="text-text-muted">—</span>}</Td>
+                  <Td className="text-text-secondary">{m.assignedCoach ? fullName(m.assignedCoach.user) : "—"}</Td>
                   <Td>
                     <UserStatusBadge status={m.status} />
                   </Td>
-                  <Td className="text-text-secondary">{new Date(m.createdAt).toLocaleDateString()}</Td>
                 </Tr>
               ))}
             </Tbody>
           </Table>
-          <Pagination page={result.meta.page} totalPages={result.meta.totalPages} onChange={setPage} />
-        </>
+          <Pagination page={data.meta.page} totalPages={data.meta.totalPages} total={data.meta.total} onChange={setPage} />
+        </div>
       )}
 
-      <AddMemberModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={load} />
+      <AddMemberModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={(id) => router.push(`/members/${id}`)} />
     </div>
+  );
+}
+
+export default function MembersPage() {
+  return (
+    <Suspense fallback={<TableSkeleton cols={7} />}>
+      <MembersView />
+    </Suspense>
   );
 }
